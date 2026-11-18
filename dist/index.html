@@ -579,7 +579,15 @@ main.with-bar{padding-bottom:178px}
     if (d.length === 10) return '234' + d;
     return d;
   }
-  function waLink(phone, text) { return 'https://wa.me/' + toWaNumber(phone) + '?text=' + encodeURIComponent(text); }
+  // wa.me opens whichever WhatsApp the phone treats as default (usually the personal app).
+  // app === 'business' returns an Android intent link that targets WhatsApp Business
+  // (package com.whatsapp.w4b) and falls back to wa.me if it isn't installed.
+  function waLink(phone, text, app) {
+    var num = toWaNumber(phone), web = 'https://wa.me/' + num + '?text=' + encodeURIComponent(text);
+    if (app !== 'business') return web;
+    return 'intent://send?' + (num ? 'phone=' + num + '&' : '') + 'text=' + encodeURIComponent(text) +
+      '#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=' + encodeURIComponent(web) + ';end';
+  }
 
   // ---- IDs / numbering ----
   function uid(prefix) { return (prefix || 'id') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -876,8 +884,34 @@ async function copyText(text) {
     }
   }
 }
-function openWhatsApp(phone, text) {
-  window.open(C.waLink(phone, text), '_blank', 'noopener');
+// Which WhatsApp the seller sends from: 'whatsapp' (personal) or 'business'.
+const UA = typeof navigator !== 'undefined' && navigator.userAgent || '';
+const IS_ANDROID = /Android/i.test(UA);
+const IS_IOS = /iPhone|iPad|iPod/i.test(UA) || typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+const waApp = s => s && s.waApp === 'business' ? 'business' : 'whatsapp';
+const waName = s => waApp(s) === 'business' ? 'WhatsApp Business' : 'WhatsApp';
+// Props for an <a> that opens the seller's WhatsApp with `text` addressed to `phone`.
+// Android: a Business intent link. iPhone has no link that targets Business, so the
+// share sheet opens instead (it lists WhatsApp Business). Everywhere else: wa.me.
+function waAnchor(seller, phone, text, onOpen) {
+  const biz = waApp(seller) === 'business';
+  const href = C.waLink(phone, text, biz && IS_ANDROID ? 'business' : 'whatsapp');
+  const intent = href.indexOf('intent:') === 0;
+  return {
+    href,
+    target: intent ? '_self' : '_blank',
+    rel: 'noopener noreferrer',
+    onClick: e => {
+      if (onOpen) onOpen(e);
+      if (e.defaultPrevented) return;
+      if (biz && IS_IOS && !IN_FRAME && navigator.share) {
+        e.preventDefault();
+        navigator.share({
+          text
+        }).catch(() => {});
+      }
+    }
+  };
 }
 
 // Download the customer-facing document as a PNG using html-to-image.
@@ -2631,8 +2665,7 @@ const IN_FRAME = (() => {
   }
 })();
 function DocActions({
-  shareHref,
-  onShare,
+  wa,
   shareLabel = 'Share on WhatsApp',
   docRef,
   filename,
@@ -2648,13 +2681,9 @@ function DocActions({
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "stack"
-  }, /*#__PURE__*/React.createElement("a", {
-    className: "btn btn-yellow btn-lg btn-block",
-    href: shareHref,
-    target: "_blank",
-    rel: "noopener noreferrer",
-    onClick: onShare
-  }, /*#__PURE__*/React.createElement(Icon, {
+  }, /*#__PURE__*/React.createElement("a", _extends({
+    className: "btn btn-yellow btn-lg btn-block"
+  }, wa), /*#__PURE__*/React.createElement(Icon, {
     name: "chat"
   }), " ", shareLabel), IN_FRAME ? /*#__PURE__*/React.createElement(React.Fragment, null, extra, /*#__PURE__*/React.createElement("p", {
     className: "hint",
@@ -2695,7 +2724,7 @@ function PreviewScreen({
     if (draft) A.patchOrder(o.id, {
       sharedAt: today
     });
-    notify(draft ? 'Opening WhatsApp · marked as sent' : 'Opening WhatsApp');
+    notify(draft ? `Opening ${waName(s)} · marked as sent` : `Opening ${waName(s)}`);
   }
   async function copy() {
     const ok = await copyText(C.paymentDetails(s, o, due.amount));
@@ -2728,8 +2757,7 @@ function PreviewScreen({
     today: today,
     docRef: ref
   })), /*#__PURE__*/React.createElement(DocActions, {
-    shareHref: C.waLink(c.phone, msg),
-    onShare: share,
+    wa: waAnchor(s, c.phone, msg, share),
     docRef: ref,
     filename: `${o.number}-payment-request.png`,
     notify: notify,
@@ -3345,22 +3373,18 @@ function ReminderScreen({
   }), /*#__PURE__*/React.createElement("p", {
     className: "hint",
     id: "rem-hint"
-  }, edited ? 'Switching tone will replace your edits.' : 'Bank details are included as plain text so they can copy them.'))), /*#__PURE__*/React.createElement("a", {
+  }, edited ? 'Switching tone will replace your edits.' : 'Bank details are included as plain text so they can copy them.'))), /*#__PURE__*/React.createElement("a", _extends({
     className: "btn btn-yellow btn-lg btn-block",
-    href: C.waLink(c.phone, text),
-    target: "_blank",
-    rel: "noopener noreferrer",
-    "aria-disabled": !text.trim(),
-    onClick: e => {
-      if (!text.trim()) {
-        e.preventDefault();
-        return;
-      }
-      notify('Opening WhatsApp · press send when ready');
+    "aria-disabled": !text.trim()
+  }, waAnchor(s, c.phone, text, e => {
+    if (!text.trim()) {
+      e.preventDefault();
+      return;
     }
-  }, /*#__PURE__*/React.createElement(Icon, {
+    notify(`Opening ${waName(s)} · press send when ready`);
+  })), /*#__PURE__*/React.createElement(Icon, {
     name: "chat"
-  }), " Open WhatsApp"), /*#__PURE__*/React.createElement("div", {
+  }), " Open ", waName(s)), /*#__PURE__*/React.createElement("div", {
     className: "callout",
     style: {
       marginTop: 16
@@ -3414,8 +3438,7 @@ function ReceiptScreen({
     today: today,
     docRef: ref
   })), /*#__PURE__*/React.createElement(DocActions, {
-    shareHref: C.waLink(c.phone, msg),
-    onShare: () => notify('Opening WhatsApp'),
+    wa: waAnchor(s, c.phone, msg, () => notify(`Opening ${waName(s)}`)),
     shareLabel: "Share receipt on WhatsApp",
     docRef: ref,
     filename: `${o.number}-receipt.png`,
@@ -3641,11 +3664,7 @@ function CustomerScreen({
     style: {
       padding: '4px 16px'
     }
-  }, c.phone ? /*#__PURE__*/React.createElement("a", {
-    href: C.waLink(c.phone, `Hi ${C.firstName(c)}! `),
-    target: "_blank",
-    rel: "noopener noreferrer"
-  }, /*#__PURE__*/React.createElement("span", {
+  }, c.phone ? /*#__PURE__*/React.createElement("a", waAnchor(state.seller, c.phone, `Hi ${C.firstName(c)}! `), /*#__PURE__*/React.createElement("span", {
     className: "ic"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "chat",
@@ -3654,7 +3673,7 @@ function CustomerScreen({
     style: {
       flex: 1
     }
-  }, c.phone, /*#__PURE__*/React.createElement("small", null, "Chat on WhatsApp")), /*#__PURE__*/React.createElement(Icon, {
+  }, c.phone, /*#__PURE__*/React.createElement("small", null, "Chat on ", waName(state.seller))), /*#__PURE__*/React.createElement(Icon, {
     name: "chevron",
     size: 18,
     className: "row-chev"
@@ -3754,7 +3773,27 @@ function SellerFields({
     type: 'tel',
     inputMode: 'tel',
     placeholder: '0803 000 1122'
-  }, 'Optional. Printed on your documents.')), (!only || only === 2) && /*#__PURE__*/React.createElement(React.Fragment, null, inp('bankName', 'Bank', {
+  }, 'Optional. Printed on your documents.'), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "flabel",
+    id: "s-waApp-l"
+  }, "Which WhatsApp do you send from?"), /*#__PURE__*/React.createElement(Seg, {
+    label: "Which WhatsApp do you send from?",
+    value: f.waApp || 'whatsapp',
+    onChange: v => set({
+      waApp: v
+    }),
+    options: [{
+      value: 'whatsapp',
+      label: 'WhatsApp'
+    }, {
+      value: 'business',
+      label: 'Business'
+    }]
+  }), /*#__PURE__*/React.createElement("p", {
+    className: "hint"
+  }, "Share and reminder buttons open this app."))), (!only || only === 2) && /*#__PURE__*/React.createElement(React.Fragment, null, inp('bankName', 'Bank', {
     list: 'banks',
     placeholder: 'e.g. GTBank',
     autoComplete: 'off'
@@ -4019,6 +4058,7 @@ function SetupScreen({
     businessName: '',
     logoInitials: '',
     phone: '',
+    waApp: 'whatsapp',
     bankName: '',
     accountNumber: '',
     accountName: ''
@@ -4168,6 +4208,7 @@ function SettingsScreen({
     businessName: s.businessName,
     logoInitials: s.logoInitials || '',
     phone: s.phone || '',
+    waApp: waApp(s),
     bankName: s.bankName,
     accountNumber: s.accountNumber,
     accountName: s.accountName
@@ -4177,7 +4218,7 @@ function SettingsScreen({
     ...x,
     ...p
   }));
-  const dirty = Object.keys(f).some(k => (f[k] || '') !== (s[k] || ''));
+  const dirty = Object.keys(f).some(k => (f[k] || '') !== ((k === 'waApp' ? waApp(s) : s[k]) || ''));
   function save() {
     const e = validateSeller(f);
     setErr(e);
