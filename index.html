@@ -1,0 +1,2400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F2EFE8">
+<title>Tally — order payments</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Archivo+Black&family=Jost:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Inter subset just for the ₦ glyph, as a fallback if Onest lacks it -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&text=%E2%82%A6&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   "Printed order book" — after the bas & boo invoice.
+   Paper + ink everywhere. Colour is a signal, never decoration:
+     lilac   = money still owed
+     green   = money received
+     magenta = urgent (overdue) + the shop's badge
+   ========================================================================== */
+:root{
+  --paper:#F2EFE8; --sheet:#FBFAF6; --ink:#23221F; --ink-2:#3B3934; --muted:#5C5850; --faint:#9A958B;
+  --rule:#23221F; --hair:rgba(35,34,31,.16); --wash:#ECE8DF;
+  --lilac:#EBC3F2; --lilac-ink:#5A2366;
+  --green:#B5EA9C; --green-ink:#24561A;
+  --magenta:#9A0F5D; --cream:#FFF3E3;
+  --err:#B3261E;
+  --b:1.5px solid var(--ink);
+  --r:22px; --r-in:14px;
+  --display:'Archivo Black','Archivo',system-ui,sans-serif;
+  --label:'Archivo',system-ui,sans-serif;
+  --body:'Jost',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --ease:cubic-bezier(.2,.75,.2,1);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;-webkit-font-smoothing:antialiased}
+/* paper grain */
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:300;opacity:.08;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+h1,h2,h3{font-family:var(--display);font-weight:400;letter-spacing:-0.035em;margin:0;line-height:1.02}
+p{margin:0}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;-webkit-tap-highlight-color:transparent}
+button:disabled{cursor:not-allowed}
+input,textarea,select{font:inherit;color:inherit}
+a{color:inherit}
+::selection{background:var(--lilac)}
+:focus-visible{outline:2.5px solid var(--magenta);outline-offset:3px;border-radius:12px}
+.summary-bar :focus-visible,.new-btn:focus-visible{outline-color:var(--lilac)}
+[tabindex="-1"]:focus{outline:none}
+.sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.skip{position:absolute;left:12px;top:-60px;background:var(--ink);color:var(--cream);padding:10px 16px;border-radius:999px;z-index:100;font-weight:600;text-decoration:none}
+.skip:focus{top:12px}
+
+/* The label voice: wide, heavy, uppercase */
+.cap,.field > label,.flabel,.hero-label,.sum-label,.earned .lbl,.stat .l,.section-head h2,.form-section > h2,.kv dt,.ocard-kind,.row-kind,.hero-pills .pill > span,.prog-labels,.sheet-meta{
+  font-family:var(--label);font-stretch:125%;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:11.5px;line-height:1.35}
+
+/* Money: heavy grotesk numerals, small raised ₦ */
+.amt{font-family:var(--display);letter-spacing:-0.045em;white-space:nowrap;font-variant-numeric:lining-nums}
+.amt .cur{font-family:var(--label);font-stretch:100%;font-weight:700;font-size:.42em;vertical-align:.72em;margin-right:.1em;letter-spacing:0}
+
+/* ---------- Shell ---------- */
+.app{max-width:430px;margin:0 auto;min-height:100vh;min-height:100dvh;position:relative;background:var(--paper)}
+main{padding:0 18px 40px}
+main.with-nav{padding-bottom:128px}
+main.with-bar{padding-bottom:178px}
+.fixed-col{position:fixed;left:0;right:0;margin:0 auto;max-width:430px;z-index:20}
+.desk-note{display:none}
+@media (min-width:900px){
+  body{background:#C996C6;background-image:radial-gradient(70% 90% at 50% 40%, #F3DDF1 0%, rgba(243,221,241,0) 70%);background-attachment:fixed}
+  .app{margin:28px auto;min-height:calc(100vh - 56px);border:var(--b);border-radius:6px;box-shadow:0 50px 80px -40px rgba(70,15,60,.55), 0 20px 30px -20px rgba(70,15,60,.4);overflow:clip}
+}
+@media (min-width:1180px){
+  .desk-note{display:block;position:fixed;left:calc(50% - 215px - 320px);top:72px;width:260px;font-size:15px;color:var(--ink)}
+  .desk-note h2{font-size:40px;margin:18px 0 14px}
+  .desk-note p{margin-bottom:10px}
+  .desk-badge{display:block;width:132px;height:132px;animation:spin 28s linear infinite}
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- Motion: staggered entrance ---------- */
+.screen > *{animation:rise .5s var(--ease) both}
+.screen > *:nth-child(2){animation-delay:.04s}
+.screen > *:nth-child(3){animation-delay:.08s}
+.screen > *:nth-child(4){animation-delay:.12s}
+.screen > *:nth-child(5){animation-delay:.16s}
+.screen > *:nth-child(6){animation-delay:.2s}
+.screen > *:nth-child(n+7){animation-delay:.24s}
+.screen > .fixed-col{animation:barIn .45s var(--ease) both .1s}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes barIn{from{transform:translateY(100%)}to{transform:none}}
+
+/* ---------- Top bar: ruled, sticky ---------- */
+.topbar{position:sticky;top:0;z-index:15;display:grid;grid-template-columns:minmax(44px,auto) 1fr minmax(44px,auto);align-items:center;gap:10px;min-height:68px;margin:0 -18px 14px;padding:0 18px;background:rgba(242,239,232,.9);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:var(--b)}
+.topbar h1{font-size:24px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;grid-column:2}
+.topbar > :last-child:not(h1){grid-column:3;justify-self:end}
+.topbar > button:first-child{grid-column:1}
+.icon-btn{width:44px;height:44px;min-width:44px;border-radius:999px;border:var(--b);background:var(--sheet);display:inline-flex;align-items:center;justify-content:center;transition:background .15s, transform .15s var(--ease)}
+.icon-btn:hover{background:var(--wash)}
+.icon-btn:active{transform:scale(.93)}
+.icon-btn.plain{border-color:transparent;background:transparent;color:var(--muted)}
+.icon-btn.plain:hover{color:var(--err);background:transparent}
+
+/* ---------- Buttons ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:52px;padding:0 20px;border:var(--b);border-radius:999px;font-family:var(--body);font-weight:500;font-size:16px;background:var(--sheet);color:var(--ink);text-decoration:none;transition:background .15s, transform .15s var(--ease);text-align:center;line-height:1.15}
+.btn:hover:not(:disabled){background:var(--wash)}
+.btn:active:not(:disabled){transform:scale(.975)}
+.btn:disabled{opacity:.45}
+.btn svg{flex-shrink:0}
+.btn-yellow,.btn-ink,.btn-hero{background:var(--ink);color:var(--cream)}
+.btn-yellow:hover:not(:disabled),.btn-ink:hover:not(:disabled),.btn-hero:hover:not(:disabled){background:#000}
+.btn-danger{color:var(--err);border-color:var(--err);background:var(--sheet)}
+.btn-danger:hover:not(:disabled){background:#FBEDEB}
+.btn-block{width:100%}
+.btn-small{min-height:44px;padding:0 15px;font-size:14px}
+.btn-lg{min-height:58px;font-weight:600;font-size:17px}
+.link-btn{min-height:44px;padding:0 4px;font-weight:600;font-size:15px;text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:4px;display:inline-flex;align-items:center;gap:5px}
+.btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stack{display:flex;flex-direction:column;gap:10px}
+
+/* ---------- Cards / pills ---------- */
+.card{background:var(--sheet);border:var(--b);border-radius:var(--r);padding:18px}
+.card + .card{margin-top:12px}
+.pill{display:inline-flex;align-items:center;gap:5px;height:26px;border:var(--b);border-radius:999px;padding:0 10px;font-family:var(--label);font-stretch:112%;font-weight:700;font-size:11.5px;letter-spacing:.03em;line-height:1;background:transparent;color:var(--ink);white-space:nowrap;vertical-align:middle}
+/* Icon + label pills: icon is a block, label is trimmed to its cap height so both centre on the same line */
+.pill svg{display:block;width:14px;height:14px;flex-shrink:0}
+.pill:has(svg){padding-left:7px}
+.pill .pill-t,.badge .pill-t{display:block;text-box:trim-both cap alphabetic}
+@supports not (text-box: trim-both cap alphabetic){ .pill .pill-t,.badge .pill-t{transform:translateY(.5px)} }
+.pill.big{font-size:13px;padding:5px 12px}
+.pill-late{background:var(--magenta);border-color:var(--magenta);color:var(--cream)}
+.st-draft{border-style:dashed;color:var(--muted);border-color:var(--muted)}
+.st-paid{background:var(--green);color:var(--ink)}
+.pills{display:inline-flex;flex-wrap:wrap;gap:6px}
+.badge{display:inline-grid;place-items:center;min-width:26px;height:26px;padding:0 8px;border-radius:999px;border:var(--b);font-family:var(--label);font-stretch:100%;font-weight:800;font-size:12.5px;line-height:1;letter-spacing:0;font-variant-numeric:tabular-nums}
+.badge.alert{background:var(--magenta);color:var(--cream);border-color:var(--magenta)}
+.avatar{display:inline-flex;align-items:center;justify-content:center;border:var(--b);border-radius:999px;font-family:var(--display);flex-shrink:0;color:var(--ink);letter-spacing:-.02em;background:var(--sheet)!important}
+.avatar.brand{background:var(--magenta)!important;border-color:var(--magenta);color:var(--cream)}
+
+/* ---------- Dashboard ---------- */
+.dash-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;padding:22px 0 16px;border-bottom:var(--b);margin-bottom:16px}
+.dash-head .hello{font-family:var(--label);font-stretch:125%;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:11px;color:var(--muted)}
+.dash-head h1{font-size:34px;margin-top:8px;max-width:9ch}
+.dash-head .avatar{transform:rotate(-10deg)}
+.hero{background:var(--lilac);border:var(--b);border-radius:26px;padding:18px 18px 16px;position:relative;overflow:hidden}
+.hero-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.hero-count{font-family:var(--label);font-stretch:112%;font-weight:700;font-size:11.5px;background:var(--magenta);color:var(--cream);border-radius:999px;padding:3px 10px}
+.hero-amt{font-size:60px;line-height:.95;margin:16px 0 6px}
+.hero-sub{font-size:14.5px;color:var(--ink-2)}
+.split{display:flex;height:10px;border:var(--b);border-radius:999px;overflow:hidden;background:var(--sheet);margin:16px 0 0}
+.split span{height:100%;transition:width .8s var(--ease)}
+.split .s-late{background:var(--magenta);border-right:var(--b)}
+.split .s-ok{background:var(--sheet);flex:1}
+.hero-pills{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(35,34,31,.35)}
+.hero-pills .pill{all:unset;display:flex;flex-direction:column;gap:4px;padding:2px 0}
+.hero-pills .pill > span{display:inline-flex;align-items:center;gap:7px;color:var(--ink-2)}
+.hero-pills .pill > span::before{content:"";width:9px;height:9px;border-radius:999px;border:1.5px solid var(--ink);background:var(--sheet)}
+.hero-pills .pill-late > span::before{background:var(--magenta);border-color:var(--magenta)}
+.hero-pills button.pill{cursor:pointer;border-radius:10px;text-align:left}
+.hero-pills button.pill:hover b{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:4px}
+.hero-pills button.pill:focus-visible{outline:2.5px solid var(--magenta);outline-offset:4px}
+.hero-pills .pill b{font-family:var(--display);font-weight:400;font-size:19px;letter-spacing:-.035em;color:var(--ink)}
+.hero-shape{display:none}
+.dash-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.earned{background:var(--green);border:var(--b);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column}
+.earned .amt-wrap{font-size:30px;line-height:1;margin:auto 0 6px;padding-top:16px}
+.earned .sub{font-size:13px;color:var(--ink-2)}
+.new-btn{background:var(--ink);color:var(--cream);border:var(--b);border-radius:var(--r);padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;text-align:left;font-family:var(--display);font-size:20px;letter-spacing:-.035em;line-height:1.02;min-height:130px;transition:transform .15s var(--ease), background .15s}
+.new-btn:hover{background:#000}
+.new-btn:active{transform:scale(.975)}
+.new-btn .plus{width:40px;height:40px;border-radius:999px;background:var(--cream);color:var(--ink);display:flex;align-items:center;justify-content:center;transition:transform .35s var(--ease)}
+.new-btn:hover .plus{transform:rotate(90deg)}
+.section{margin-top:30px}
+/* Section head: a ledger column heading. Title + count, a one-line summary, and one rule closing the block */
+.section-head{display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:12px;row-gap:3px;padding-bottom:12px;margin-bottom:14px;border-bottom:var(--b)}
+.sh-title{display:flex;align-items:center;gap:9px;min-width:0}
+.section-head h2{font-family:var(--display);font-stretch:100%;font-weight:400;text-transform:none;letter-spacing:-.035em;font-size:23px;line-height:1.05;white-space:nowrap}
+.sh-sub{grid-column:1 / -1;font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}
+.sh-sub b{color:var(--ink);font-weight:600}
+.see-all{position:relative;display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 10px 0 14px;border:var(--b);border-radius:999px;background:var(--sheet);font-weight:600;font-size:14px;line-height:1;transition:background .15s}
+.see-all::after{content:"";position:absolute;inset:-4px}
+.see-all:hover{background:var(--wash)}
+.see-all svg{transition:transform .25s var(--ease)}
+.see-all:hover svg{transform:translateX(3px)}
+.ocard{background:var(--sheet);border:var(--b);border-radius:var(--r);overflow:hidden}
+.ocard + .ocard{margin-top:10px}
+.ocard-main{display:flex;gap:12px;width:100%;text-align:left;padding:16px 16px 14px;align-items:center;transition:background .15s}
+.ocard-main:hover{background:#fff}
+.ocard-body{flex:1;min-width:0;display:block}
+.ocard-name{display:block;font-weight:600;font-size:16.5px}
+.ocard-sub{display:block;color:var(--muted);font-size:14px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ocard-end{text-align:right;flex-shrink:0}
+.ocard-amt{display:block;font-size:26px;line-height:1}
+.ocard-kind{display:block;color:var(--muted);margin-top:5px;font-size:10.5px}
+.ocard{position:relative}
+.ocard-main{align-items:flex-start}
+.ocard-flag{display:block;margin-top:9px}
+/* Tear-off reminder strip: perforated seam with ticket notches */
+.ocard-remind{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:58px;padding:0 18px 0 16px;border-top:1.5px dashed var(--ink);text-align:left;font-weight:600;font-size:15px;letter-spacing:-.005em;background:transparent;transition:background .15s}
+.ocard-remind::before,.ocard-remind::after{content:"";position:absolute;top:-9px;width:16px;height:16px;border-radius:50%;background:var(--paper);border:1.5px solid var(--ink)}
+.ocard-remind::before{left:-9.5px}
+.ocard-remind::after{right:-9.5px}
+.ocard-remind:hover{background:var(--wash)}
+.ocard-remind:active{background:#E4DFD4}
+.ocard-remind:focus-visible{outline-offset:-5px;border-radius:0 0 18px 18px}
+.remind-ic{width:32px;height:32px;border-radius:999px;background:var(--ink);color:var(--cream);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .25s var(--ease)}
+.ocard-remind:hover .remind-ic{transform:rotate(-12deg)}
+.remind-txt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.remind-arrow{flex-shrink:0;transition:transform .25s var(--ease)}
+.ocard-remind:hover .remind-arrow{transform:translateX(4px)}
+
+/* ---------- Rows / lists ---------- */
+.list{background:var(--sheet);border:var(--b);border-radius:var(--r);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 16px;min-height:68px;background:transparent;transition:background .15s}
+.row + .row{border-top:1px solid var(--hair)}
+.row:hover{background:#fff}
+.row-main{flex:1;min-width:0;display:block}
+.row-title{display:block;font-weight:600}
+.row-sub{display:block;color:var(--muted);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.row-end{text-align:right;display:block;flex-shrink:0}
+.row-amt{display:block;font-family:var(--display);font-size:16px;letter-spacing:-.035em}
+.row-kind{display:block;color:var(--muted);font-size:10px;margin-top:3px}
+.row-chev{color:var(--faint);flex-shrink:0}
+
+/* ---------- Empty states ---------- */
+.empty{text-align:center;padding:24px 20px;border:1.5px dashed var(--ink);border-radius:var(--r);background:transparent}
+.empty h3{font-size:21px;margin:12px 0 6px}
+.empty p{color:var(--muted);font-size:15px;max-width:30ch;margin:0 auto}
+.empty .btn{margin-top:16px}
+.empty-hero{text-align:center;padding:16px 4px}
+.empty-hero h2{font-size:38px;margin:18px 0 10px}
+.empty-hero p{color:var(--muted);max-width:32ch;margin:0 auto 24px}
+
+/* ---------- Forms ---------- */
+.form-section{background:var(--sheet);border:var(--b);border-radius:var(--r);padding:16px;margin-bottom:12px}
+.form-section > h2{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.form-section > h2::after{content:"";flex:1;height:1px;background:var(--hair)}
+.field{display:flex;flex-direction:column;gap:7px;margin-bottom:15px}
+.field:last-child{margin-bottom:0}
+.field > label,.flabel{font-size:10.5px;color:var(--ink-2)}
+.input,.textarea,.select{width:100%;min-height:50px;border:var(--b);border-radius:var(--r-in);padding:10px 14px;background:#fff;font-size:16px;transition:box-shadow .15s}
+.input::placeholder,.textarea::placeholder,.affix input::placeholder{color:var(--faint)}
+.textarea{min-height:230px;resize:vertical;line-height:1.55}
+.input[aria-invalid="true"],.affix[data-invalid="true"]{border-color:var(--err);background:#FFF8F7}
+.input:focus-visible,.textarea:focus-visible,.affix:focus-within{outline:none;box-shadow:0 0 0 4px var(--lilac)}
+.affix{display:flex;align-items:center;border:var(--b);border-radius:var(--r-in);background:#fff;min-height:50px;padding:0 14px;gap:6px;transition:box-shadow .15s}
+.affix input{border:0;outline:0;background:transparent;flex:1;min-width:0;font-size:16px;padding:10px 0;font-variant-numeric:tabular-nums}
+.affix span{font-weight:600;color:var(--muted)}
+.hint{font-size:13px;color:var(--muted)}
+.error{font-size:14px;color:var(--err);font-weight:500;display:flex;gap:6px;align-items:flex-start;animation:rise .25s var(--ease)}
+.error svg{flex-shrink:0;margin-top:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips.scroll{flex-wrap:nowrap;overflow-x:auto;margin:0 -18px;padding:2px 18px 14px;scrollbar-width:none}
+.chips.scroll::-webkit-scrollbar{display:none}
+.chip{min-height:44px;padding:0 8px 0 15px;border:var(--b);border-radius:999px;background:var(--sheet);font-weight:500;font-size:14px;line-height:1;white-space:nowrap;display:inline-flex;align-items:center;gap:8px;transition:background .15s, color .15s}
+.chip:not(:has(.count)){padding-right:15px}
+.chip:hover{background:var(--wash)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--cream)}
+/* Count badge: its own centred box, so it never rides on the label's baseline */
+.chip .count{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 7px;border-radius:999px;background:var(--wash);color:var(--ink-2);font-family:var(--label);font-stretch:100%;font-weight:700;font-size:12px;line-height:1;font-variant-numeric:tabular-nums;transition:background .15s, color .15s}
+.chip:hover .count{background:#E2DDD2}
+.chip[aria-pressed="true"] .count{background:rgba(255,243,227,.16);color:var(--cream)}
+.seg{display:flex;border:var(--b);border-radius:999px;padding:3px;background:#fff;gap:3px}
+.seg button{flex:1;min-height:42px;border-radius:999px;font-weight:500;font-size:14px;padding:0 10px;color:var(--muted);transition:background .2s, color .2s}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--cream)}
+.switch-row{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:44px}
+.switch-row .flabel{font-size:10.5px}
+.switch{width:54px;height:32px;border-radius:999px;border:var(--b);background:#fff;position:relative;flex-shrink:0;transition:background .2s}
+.switch::after{content:"";position:absolute;top:3.5px;left:4px;width:22px;height:22px;border-radius:999px;background:var(--ink);transition:transform .25s var(--ease), background .2s}
+.switch[aria-checked="true"]{background:var(--ink)}
+.switch[aria-checked="true"]::after{transform:translateX(21px);background:var(--cream)}
+.switch-wrap{min-width:54px;min-height:44px;display:flex;align-items:center}
+.item-row{border:1px solid var(--hair);border-radius:18px;padding:12px;margin-bottom:10px;background:var(--paper);animation:rise .35s var(--ease)}
+.item-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.item-controls{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;margin-top:10px}
+.line-total{font-size:13px;color:var(--muted);text-align:right;margin-top:8px}
+.line-total b{color:var(--ink)}
+.stepper{display:flex;align-items:center;border:var(--b);border-radius:999px;background:#fff;height:50px}
+.stepper button{width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:999px;transition:background .15s}
+.stepper button:hover:not(:disabled){background:var(--wash)}
+.stepper button:disabled{opacity:.3}
+.stepper output{min-width:26px;text-align:center;font-family:var(--display);font-size:17px}
+.picker-list{border:var(--b);border-radius:var(--r-in);overflow:hidden;margin-top:10px;background:#fff}
+.picker-list .row{min-height:56px;padding:8px 12px}
+.picked{display:flex;align-items:center;gap:12px;border:var(--b);border-radius:var(--r-in);padding:10px 10px 10px 12px;background:#fff}
+.breakdown div{display:flex;justify-content:space-between;padding:5px 0;font-variant-numeric:tabular-nums}
+.breakdown div span:first-child{color:var(--muted)}
+.breakdown div.total{font-family:var(--display);font-size:22px;letter-spacing:-.035em;border-top:var(--b);margin-top:8px;padding-top:12px}
+.breakdown div.total span:first-child{color:var(--ink)}
+.summary-bar{bottom:0;padding:14px 18px calc(14px + env(safe-area-inset-bottom));background:var(--ink);color:var(--cream);border-radius:24px 24px 0 0;display:flex;align-items:center;gap:12px}
+.sum-nums{flex:1;display:flex;gap:18px;min-width:0}
+.sum-label{display:block;font-size:9.5px;color:#C9C2B4}
+.sum-val{display:block;font-size:22px;line-height:1.1;margin-top:3px}
+.sum-nums > div:last-child .sum-val{color:var(--lilac)}
+.summary-bar .btn{background:var(--cream);color:var(--ink);border-color:var(--cream);padding:0 18px}
+.summary-bar .btn:hover:not(:disabled){background:#fff}
+
+/* ---------- Bottom nav ---------- */
+.nav-wrap{bottom:0;padding:0 14px calc(14px + env(safe-area-inset-bottom))}
+/* White pill bar; a green pill slides to the active tab; Orders carries the overdue count */
+.nav{position:relative;background:#fff;border:var(--b);border-radius:999px;display:flex;padding:6px;box-shadow:0 18px 34px -16px rgba(35,34,31,.4)}
+.nav-ind{position:absolute;top:6px;bottom:6px;left:0;border-radius:999px;background:var(--green);transition:transform .45s var(--ease), width .45s var(--ease);pointer-events:none}
+.nav-btn{position:relative;z-index:1;flex:1 1 0;min-width:0;min-height:50px;border-radius:999px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 4px;color:var(--muted);font-weight:600;font-size:14.5px;letter-spacing:-.005em;line-height:1;white-space:nowrap;transition:color .2s}
+.nav-btn:hover{color:var(--ink)}
+.nav-btn.on{color:var(--ink)}
+.nav-count{display:inline-grid;place-items:center;flex-shrink:0;min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--magenta);color:var(--cream);font-family:var(--label);font-stretch:100%;font-weight:800;font-size:11.5px;line-height:1;font-variant-numeric:tabular-nums;transition:background .25s}
+.nav-btn.on .nav-count{background:var(--ink)}
+.nav-count .pill-t{display:block;text-box:trim-both cap alphabetic}
+@media (max-width:360px){ .nav-btn{font-size:13px} }
+
+/* ---------- Toast ---------- */
+.toast-wrap{bottom:24px;display:flex;justify-content:center;padding:0 16px;pointer-events:none;z-index:60}
+.toast-wrap.above-nav{bottom:102px}
+.toast-wrap.above-bar{bottom:100px}
+.toast{background:var(--ink);color:var(--cream);border-radius:999px;padding:11px 18px 11px 12px;font-weight:500;font-size:15px;box-shadow:0 14px 30px -12px rgba(35,34,31,.5);animation:toastIn .35s var(--ease);max-width:100%;display:flex;gap:9px;align-items:center}
+.toast svg{width:22px;height:22px;padding:3px;border-radius:999px;background:var(--green);color:var(--ink);flex-shrink:0}
+@keyframes toastIn{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}
+
+/* ---------- Sheet ---------- */
+.overlay{position:fixed;inset:0;background:rgba(35,34,31,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:fade .2s ease-out}
+.sheet{width:100%;max-width:430px;background:var(--paper);border:var(--b);border-bottom:0;border-radius:28px 28px 0 0;padding:8px 18px calc(22px + env(safe-area-inset-bottom));max-height:92vh;overflow-y:auto;animation:slideUp .38s var(--ease)}
+.grabber{width:40px;height:5px;border-radius:9px;background:rgba(35,34,31,.25);margin:4px auto 10px}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:var(--b)}
+.sheet-head h2{font-size:26px}
+.callout{display:flex;gap:10px;align-items:flex-start;background:var(--sheet);border:1px solid var(--hair);border-radius:16px;padding:12px 14px;font-size:14px;color:var(--ink-2);margin-bottom:14px}
+.callout svg{flex-shrink:0;margin-top:1px;color:var(--ink)}
+.success{text-align:center;padding:8px 0 4px}
+.success .tick{width:78px;height:78px;border-radius:999px;background:var(--green);border:var(--b);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;animation:pop .5s var(--ease)}
+.success h2{font-size:20px;margin-bottom:8px}
+.success h2 .amt{display:block;font-size:46px;margin-bottom:4px}
+.success p{color:var(--muted);margin-bottom:20px}
+@keyframes pop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.08)}100%{transform:none;opacity:1}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+
+/* ---------- Order detail ---------- */
+.detail-top{padding:4px 0 0}
+.detail-id{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:var(--label);font-stretch:112%;font-weight:800;font-size:13px;letter-spacing:.02em}
+.detail-amt{font-size:58px;line-height:.95;margin:16px 0 6px}
+.detail-top > .hint{font-family:var(--label);font-stretch:125%;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:11px;color:var(--muted)}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px;padding-top:14px;border-top:var(--b)}
+.kv dt{font-size:10.5px;color:var(--muted)}
+.kv dd{margin:5px 0 0;font-weight:600}
+.dash{border:0;border-top:1.5px dashed var(--ink);margin:22px 0;opacity:.35}
+.billed{display:flex;gap:14px;align-items:center;width:100%;text-align:left;border-radius:14px}
+.billed .who{flex:1;min-width:0}
+.billed .who b{display:block;font-weight:600;font-size:17px}
+.billed .who span{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14.5px;margin-top:2px}
+.progress{height:12px;border:var(--b);border-radius:999px;background:var(--sheet);overflow:hidden;margin:18px 0 8px}
+.progress > div{height:100%;background:var(--green);border-right:var(--b);transition:width .8s var(--ease)}
+.progress > div.full{border-right:0}
+.prog-labels{display:flex;justify-content:space-between;gap:10px;font-size:10.5px;color:var(--muted)}
+.prog-labels b{color:var(--ink)}
+.timeline{list-style:none;margin:0;padding:0}
+.timeline li{display:flex;gap:12px;position:relative;padding-bottom:18px}
+.timeline li:last-child{padding-bottom:0}
+.timeline li:not(:last-child)::before{content:"";position:absolute;left:13px;top:30px;bottom:2px;width:1.5px;background:var(--ink)}
+.tl-dot{width:28px;height:28px;border-radius:999px;border:var(--b);background:var(--sheet);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tl-dot.done{background:var(--ink);color:var(--cream)}
+.tl-dot.late{background:var(--magenta);border-color:var(--magenta);color:var(--cream)}
+.tl-dot.pending{border-style:dashed}
+.tl-text{padding-top:3px}
+.tl-text b{display:block;font-weight:600}
+.tl-text span{color:var(--muted);font-size:14px}
+.items-mini div{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--hair);font-variant-numeric:tabular-nums}
+.items-mini div:last-child{border-bottom:0}
+.items-mini .tot{font-family:var(--display);letter-spacing:-.03em;border-top:var(--b);border-bottom:0;margin-top:4px;padding-top:12px}
+.actions{display:grid;gap:10px;margin-top:20px}
+.danger-zone{margin-top:20px;text-align:center}
+.danger-link{color:var(--err);font-weight:500;min-height:44px;padding:0 14px;display:inline-flex;align-items:center;gap:6px;border-radius:999px}
+.danger-link:hover{background:#FBEDEB}
+
+/* ---------- Customer-facing document (the printed invoice) ---------- */
+.doc-tray{background:var(--wash);border:1px solid var(--hair);border-radius:26px;padding:14px 12px;margin-bottom:16px}
+.doc{background:#FBFAF6;color:#23221F;border-radius:4px;padding:22px 18px 16px;font-family:var(--body);font-size:13px;line-height:1.45;position:relative;overflow:hidden;box-shadow:0 22px 30px -22px rgba(35,34,31,.45), 0 2px 4px rgba(35,34,31,.06)}
+.doc .cap{font-size:9.5px;letter-spacing:.09em;color:#23221F}
+.doc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.doc-brand{display:flex;align-items:center;gap:10px}
+.doc-logo{width:46px;height:46px;border-radius:999px;background:#9A0F5D;color:#FFF3E3;font-family:var(--display);display:flex;align-items:center;justify-content:center;font-size:15px;letter-spacing:-.02em;flex-shrink:0;transform:rotate(-10deg)}
+.doc-biz{font-family:var(--display);font-size:20px;letter-spacing:-.045em;line-height:.95;max-width:9ch}
+.doc-date{text-align:right;font-family:var(--label);font-stretch:112%;font-weight:800;font-size:11.5px;white-space:nowrap}
+.doc-date span{display:block;font-family:var(--body);font-weight:400;font-stretch:100%;color:#5C5850;font-size:12px;margin-top:2px}
+.doc-rule{height:1.5px;background:#23221F;margin:14px 0}
+.doc-titlerow{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+.doc-title{font-family:var(--display);font-size:36px;letter-spacing:-.06em;line-height:.88}
+.doc-no{font-family:var(--label);font-stretch:112%;font-weight:800;font-size:11.5px;white-space:nowrap}
+.doc-boxes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.doc-box{border:1.5px solid #23221F;border-radius:14px;padding:10px 12px;min-width:0}
+.doc-box.lilac{background:#EBC3F2}
+.doc-box.green{background:#B5EA9C}
+.doc-box .cap{margin-bottom:5px}
+.doc-box .acct{font-family:var(--label);font-stretch:112%;font-weight:700;letter-spacing:.05em;font-variant-numeric:tabular-nums}
+.doc-table{width:100%;border-collapse:collapse;margin-top:12px}
+.doc-table th{font-family:var(--label);font-stretch:125%;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:9px;text-align:left;padding:0 0 7px;border-bottom:1.5px solid #23221F}
+.doc-table td{padding:8px 0;border-bottom:1px solid rgba(35,34,31,.15);vertical-align:top}
+.doc-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.doc-table .qty{text-align:center;width:34px}
+.doc-bottom{display:grid;grid-template-columns:1fr 1.2fr;gap:10px;margin-top:12px;align-items:start}
+.doc-notes p{color:#5C5850;font-size:12px;margin-top:4px}
+.doc-totals{margin:0}
+.doc-totals div{display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-variant-numeric:tabular-nums}
+.doc-totals dt{font-family:var(--label);font-stretch:112%;font-weight:700;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;align-self:center}
+.doc-totals dd{margin:0;white-space:nowrap}
+.doc-totals .grand{border-top:1.5px solid #23221F;margin-top:6px;padding-top:7px}
+.doc-totals .grand dt{font-size:11px;font-weight:900}
+.doc-totals .grand dd{font-family:var(--display);font-size:15px;letter-spacing:-.035em}
+.paynow{margin-top:12px;border:1.5px solid #23221F;border-radius:14px;padding:12px 14px;background:#EBC3F2;display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+.paynow .a{font-size:30px;line-height:1;margin-top:6px}
+.paynow .d{font-size:12px;text-align:right;max-width:16ch}
+.doc-pays{margin-top:12px}
+.doc-pays div{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(35,34,31,.15);font-variant-numeric:tabular-nums}
+.doc-pays dd{margin:0;white-space:nowrap}
+.doc-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;border-top:1.5px solid #23221F;margin-top:14px;padding-top:9px;font-size:11.5px;color:#5C5850}
+.doc-foot span{display:inline-flex;align-items:center;gap:5px}
+.stamp{position:absolute;top:78px;right:14px;transform:rotate(-14deg);width:84px;height:84px;border-radius:999px;background:#9A0F5D;color:#FFF3E3;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:var(--display);font-size:20px;letter-spacing:.02em;line-height:1;box-shadow:0 0 0 3px #FBFAF6, 0 0 0 4.5px #9A0F5D}
+.stamp small{font-family:var(--label);font-stretch:125%;font-weight:800;font-size:7.5px;letter-spacing:.14em;margin-top:5px}
+.msg-preview{margin-top:14px;background:var(--sheet);border:var(--b);border-radius:20px;padding:4px 16px}
+.msg-preview summary{min-height:50px;display:flex;align-items:center;justify-content:space-between;font-weight:600;cursor:pointer;list-style:none}
+.msg-preview summary::-webkit-details-marker{display:none}
+.msg-preview summary::after{content:"+";font-family:var(--display);font-size:20px;transition:transform .2s var(--ease)}
+.msg-preview[open] summary::after{transform:rotate(45deg)}
+.msg-preview pre{white-space:pre-wrap;font-family:var(--body);font-size:14px;margin:0 0 14px;background:#fff;border:1px solid var(--hair);border-radius:16px 16px 16px 4px;padding:12px 14px}
+.note{color:var(--muted);font-size:14px;margin-bottom:14px}
+
+/* ---------- Reminder ---------- */
+.tabs{display:flex;gap:3px;border:var(--b);border-radius:999px;padding:3px;background:#fff;margin-bottom:14px}
+.tabs button{flex:1;min-height:44px;border-radius:999px;font-weight:500;color:var(--muted);transition:background .2s, color .2s}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--cream)}
+
+/* ---------- Profile ---------- */
+.profile-head{text-align:center;padding:4px 0 20px}
+.profile-head h2{font-size:34px;margin-top:14px}
+.profile-head p{color:var(--muted);font-size:14px;margin-top:6px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.stat{border:var(--b);border-radius:var(--r);padding:14px 16px;background:var(--sheet)}
+.stat .l{font-size:10.5px;color:var(--ink-2)}
+.stat .v{font-size:28px;line-height:1;margin-top:14px}
+.stat.owed{background:var(--lilac)}
+.contact a{display:flex;align-items:center;gap:12px;min-height:60px;text-decoration:none;font-weight:600}
+.contact a + a,.contact a + div,.contact div + a{border-top:1px solid var(--hair)}
+.contact .ic{width:38px;height:38px;border-radius:999px;border:var(--b);display:flex;align-items:center;justify-content:center;background:var(--sheet);flex-shrink:0}
+.contact small{display:block;color:var(--muted);font-weight:400;font-size:13px}
+.search{position:relative;margin-bottom:14px}
+.search svg{position:absolute;left:15px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.search .input{padding-left:44px}
+
+/* ---------- Setup ---------- */
+.setup-top{padding:28px 0 18px;position:relative;border-bottom:var(--b);margin-bottom:16px}
+.setup-top h1{font-size:44px;max-width:9ch;letter-spacing:-.05em}
+.setup-top p{color:var(--ink-2);margin-top:12px;max-width:30ch}
+.steps{display:flex;gap:6px;margin-bottom:18px;max-width:110px}
+.steps span{height:6px;flex:1;border-radius:999px;border:1.5px solid var(--ink)}
+.steps span.on{background:var(--ink)}
+.setup-top > p:first-of-type{font-family:var(--label);font-stretch:125%;font-weight:800;text-transform:uppercase;letter-spacing:.07em;font-size:11px;margin-top:0}
+.settings-foot{color:var(--muted);font-size:13px;text-align:center;margin-top:18px}
+
+/* ---------- Onboarding: poster panels ---------- */
+.ob{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;padding:16px 0 calc(16px + env(safe-area-inset-bottom))}
+.ob-viewport{flex:1;display:flex;overflow:hidden;margin:0 -18px;touch-action:pan-y}
+.ob-track{display:flex;width:100%;transition:transform .55s var(--ease)}
+.ob-slide{flex:0 0 100%;min-width:0;padding:0 18px;display:flex}
+.ob-panel{position:relative;flex:1;min-height:460px;border:var(--b);border-radius:30px;overflow:hidden;padding:30px 24px 0;color:var(--ink)}
+.ob-panel.lilac{background:var(--lilac)}
+.ob-panel.green{background:var(--green)}
+.ob-panel.magenta{background:var(--magenta);border-color:var(--magenta);color:var(--cream)}
+.ob-word{font-family:var(--label);font-stretch:62%;font-weight:900;font-size:clamp(78px,25vw,108px);line-height:.8;letter-spacing:-.005em;text-transform:uppercase;margin:0}
+.ob-body{margin-top:16px;max-width:24ch;font-size:15.5px;line-height:1.45;font-weight:500}
+.ob-art{position:absolute;left:0;right:0;bottom:0;height:55%;pointer-events:none}
+.ob-foot{display:grid;gap:12px;padding-top:18px}
+.ob-nav{display:flex;align-items:center;justify-content:space-between}
+.ob-arrow{width:44px;height:44px;border-radius:999px;border:var(--b);background:var(--sheet);display:grid;place-items:center;transition:background .15s, opacity .2s}
+.ob-arrow:hover:not(:disabled){background:var(--wash)}
+.ob-arrow:disabled{opacity:.25}
+.ob-dots{display:flex;gap:6px}
+.ob-dots button{position:relative;width:8px;height:8px;border-radius:999px;background:rgba(35,34,31,.25);transition:width .35s var(--ease), background .2s}
+.ob-dots button::after{content:"";position:absolute;inset:-18px -6px}
+.ob-dots button[aria-current="step"]{width:28px;background:var(--ink)}
+.ob-demo{justify-self:center}
+/* art 1: printed request rising from the panel edge */
+.art-doc{position:absolute;left:50%;bottom:-46px;transform:translateX(-50%) rotate(-9deg)}
+.mini-doc{position:relative;width:230px;background:#FBFAF6;border:1.5px solid var(--ink);border-radius:6px;padding:15px 14px 60px;font-size:9.5px;color:var(--ink);animation:obFloat 6s ease-in-out infinite}
+.mini-doc .t{font-family:var(--display);font-size:22px;letter-spacing:-.06em;line-height:.9}
+.mini-doc .no{font-family:var(--label);font-stretch:112%;font-weight:800;font-size:8px;margin-top:5px}
+.mini-doc .rule{height:1.5px;background:var(--ink);margin:8px 0}
+.mini-doc .bx{border:1.5px solid var(--ink);border-radius:9px;padding:6px 8px;margin-top:6px}
+.mini-doc .bx.l{background:var(--lilac)}
+.mini-doc .bx.g{background:var(--green);display:flex;justify-content:space-between;align-items:center}
+.mini-doc .cp{font-family:var(--label);font-stretch:125%;font-weight:800;text-transform:uppercase;letter-spacing:.08em;font-size:6.5px}
+.mini-doc .ln{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--hair)}
+.mini-doc .big{font-family:var(--display);font-size:15px;letter-spacing:-.04em}
+.ob-badge{position:absolute;right:18px;top:-6px;width:84px;height:84px;animation:spin 24s linear infinite}
+/* art 2: phone with the WhatsApp request */
+.art-phone{position:absolute;left:50%;bottom:-70px;width:214px;height:300px;transform:translateX(-50%) rotate(7deg);background:var(--ink);border-radius:34px;padding:12px 9px;animation:obFloat 6s ease-in-out infinite}
+.art-screen{height:100%;background:#F6F3EC;border-radius:25px;padding:24px 10px 10px;display:grid;align-content:start;gap:7px;position:relative}
+.art-screen::before{content:"";position:absolute;top:8px;left:50%;width:54px;height:6px;border-radius:9px;background:var(--ink);transform:translateX(-50%)}
+.bubble{background:#fff;border:1.5px solid var(--ink);border-radius:15px 15px 15px 4px;padding:8px 10px;font-size:10.5px;line-height:1.45;color:var(--ink)}
+.bubble.me{justify-self:end;border-radius:15px 15px 4px 15px;background:var(--green);max-width:82%}
+.bubble .hl{background:var(--lilac);border-radius:4px;padding:0 3px;font-weight:600;font-variant-numeric:tabular-nums}
+.mini-copy{justify-self:start;display:inline-flex;align-items:center;gap:5px;background:var(--ink);color:var(--cream);border-radius:999px;padding:5px 9px;font-size:9.5px;font-weight:600}
+/* art 3: reminder stack */
+.art-stack{position:absolute;left:50%;bottom:-30px;width:250px;transform:translateX(-50%);display:grid;gap:10px;animation:obFloat 6s ease-in-out infinite}
+.mini-card{background:var(--sheet);color:var(--ink);border:1.5px solid var(--ink);border-radius:18px;padding:12px;display:flex;align-items:center;gap:10px;transform:rotate(-3deg)}
+.mini-card .who{flex:1;min-width:0;font-size:12px;line-height:1.3}
+.mini-card .who b{display:block;font-size:13.5px;margin-bottom:4px}
+.mini-card .amt{font-size:20px}
+.mini-tabs{display:flex;gap:3px;border:1.5px solid var(--ink);border-radius:999px;padding:3px;background:#fff;transform:rotate(2deg)}
+.mini-tabs span{flex:1;text-align:center;border-radius:999px;padding:6px 0;font-size:11.5px;font-weight:600;color:var(--muted)}
+.mini-tabs span.on{background:var(--ink);color:var(--cream)}
+.mini-msg{background:#fff;color:var(--ink);border:1.5px solid var(--ink);border-radius:16px;padding:10px 12px 40px;font-size:12px;line-height:1.45;transform:rotate(-1deg)}
+@keyframes obFloat{0%,100%{translate:0 0}50%{translate:0 -6px}}
+@media (max-height:700px){ .ob-panel{min-height:400px} .ob-word{font-size:clamp(66px,21vw,90px)} }
+.warn{background:#FBEDEB;border-color:var(--err);color:var(--err)}
+
+@media print{
+  body{background:#fff}
+  body::after{display:none}
+  body *{visibility:hidden}
+  .printable,.printable *{visibility:visible}
+  .printable{position:absolute;left:0;top:0;width:100%;max-width:480px;box-shadow:none}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
+</style>
+</head>
+<body>
+<div id="root"><p style="padding:24px;font-family:sans-serif">Loading…</p></div>
+<noscript><p style="padding:24px">This prototype needs JavaScript.</p></noscript>
+
+<!-- =========================================================================
+     STAGE 1 — Core: dates, money, storage, calculations, status, messages,
+     sample data. Plain JS (no JSX) so it can also be tested in Node.
+     ========================================================================= -->
+<script id="core">
+(function (root) {
+  'use strict';
+  var pad = function (n) { return String(n).padStart(2, '0'); };
+  var DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MONTHS_LONG = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  // ---- Dates: stored as local 'YYYY-MM-DD' strings ----
+  function toISO(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function todayISO() { return toISO(new Date()); }
+  function parseISO(s) { var p = String(s).slice(0, 10).split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); }
+  function addDays(s, n) { var d = parseISO(s); d.setDate(d.getDate() + n); return toISO(d); }
+  function diffDays(a, b) { // a − b, in whole days
+    var A = parseISO(a), B = parseISO(b);
+    return Math.round((Date.UTC(A.getFullYear(), A.getMonth(), A.getDate()) - Date.UTC(B.getFullYear(), B.getMonth(), B.getDate())) / 86400000);
+  }
+  function fmtDate(s) { var d = parseISO(s); return DAYS[d.getDay()] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()]; }
+  function fmtShort(s) { var d = parseISO(s); return d.getDate() + ' ' + MONTHS[d.getMonth()]; }
+  function fmtLong(s) { var d = parseISO(s); return d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear(); }
+  function monthName(s) { return MONTHS_LONG[parseISO(s).getMonth()]; }
+  function relDays(date, today) {
+    var d = diffDays(date, today);
+    if (d === 0) return 'today';
+    if (d === 1) return 'tomorrow';
+    if (d > 1) return 'in ' + d + ' days';
+    if (d === -1) return 'yesterday';
+    return (-d) + ' days ago';
+  }
+
+  // ---- Money: integers in naira ----
+  function commas(n) { return String(Math.abs(Math.round(n || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function naira(n) { return (n < 0 ? '−' : '') + '₦' + commas(n); }
+
+  // ---- Phones: '0803 123 4567' -> '2348031234567' ----
+  function toWaNumber(phone) {
+    var d = String(phone || '').replace(/\D/g, '');
+    if (!d) return '';
+    if (d.indexOf('234') === 0) return d;
+    if (d.charAt(0) === '0') return '234' + d.slice(1);
+    if (d.length === 10) return '234' + d;
+    return d;
+  }
+  function waLink(phone, text) { return 'https://wa.me/' + toWaNumber(phone) + '?text=' + encodeURIComponent(text); }
+
+  // ---- IDs / numbering ----
+  function uid(prefix) { return (prefix || 'id') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function invNumber(n) { return 'INV-' + String(n).padStart(4, '0'); }
+
+  // ---- Calculations (never stored) ----
+  function subtotal(o) { return (o.items || []).reduce(function (s, i) { return s + (i.quantity || 0) * (i.unitPrice || 0); }, 0); }
+  function discountAmount(o) {
+    var st = subtotal(o), d = o.discount;
+    if (!d || !d.value) return 0;
+    var v = d.type === 'percent' ? Math.round(st * Math.min(d.value, 100) / 100) : d.value;
+    return Math.min(v, st);
+  }
+  function total(o) { return subtotal(o) - discountAmount(o) + (o.deliveryFee || 0); }
+  function paid(o) { return (o.payments || []).reduce(function (s, p) { return s + p.amount; }, 0); }
+  function balance(o) { return total(o) - paid(o); }
+
+  // status: 'draft' | 'deposit' (Awaiting deposit) | 'balance' (Balance due) | 'paid' (Fully paid)
+  function status(o) {
+    if (!o.sharedAt) return 'draft';
+    if (balance(o) <= 0) return 'paid';
+    if (o.depositRequired > 0 && paid(o) < o.depositRequired) return 'deposit';
+    return 'balance';
+  }
+  function isOpen(o) { var s = status(o); return s === 'deposit' || s === 'balance'; }
+  // Overdue is a flag, not a status
+  function daysLate(o, today) {
+    if (!isOpen(o)) return 0;
+    var d = diffDays(today, o.deadline);
+    return d > 0 ? d : 0;
+  }
+  function lateLabel(n) { return n === 1 ? '1 day late' : n + ' days late'; }
+  // What the customer should pay right now
+  function dueNow(o) {
+    var p = paid(o), b = balance(o);
+    if (b <= 0) return { kind: 'none', amount: 0 };
+    if (o.depositRequired > 0 && p < o.depositRequired) return { kind: 'deposit', amount: Math.min(o.depositRequired - p, b) };
+    if (o.depositRequired === 0 && p === 0) return { kind: 'full', amount: b };
+    return { kind: 'balance', amount: b };
+  }
+  function orderTitle(o) {
+    if (!o.items || !o.items.length) return 'Untitled order';
+    return o.items.map(function (i) { return i.quantity > 1 ? i.quantity + ' × ' + i.name : i.name; }).join(' + ');
+  }
+  function firstName(c) { return c && c.name ? c.name.trim().split(/\s+/)[0] : 'there'; }
+
+  function sortOrders(list, today) {
+    return list.slice().sort(function (a, b) {
+      var la = daysLate(a, today), lb = daysLate(b, today);
+      if (la !== lb) return lb - la; // most days late first
+      var oa = isOpen(a) ? 0 : status(a) === 'draft' ? 1 : 2;
+      var ob = isOpen(b) ? 0 : status(b) === 'draft' ? 1 : 2;
+      if (oa !== ob) return oa - ob;
+      if (oa === 0) return a.deadline < b.deadline ? -1 : a.deadline > b.deadline ? 1 : 0;
+      return a.number < b.number ? 1 : -1; // newest first
+    });
+  }
+
+  function summary(state, today) {
+    var open = state.orders.filter(isOpen);
+    var owed = 0, overdue = 0, overdueCount = 0;
+    open.forEach(function (o) {
+      var b = balance(o); owed += b;
+      if (daysLate(o, today) > 0) { overdue += b; overdueCount++; }
+    });
+    var month = today.slice(0, 7), earned = 0, paymentsCount = 0;
+    state.orders.forEach(function (o) {
+      (o.payments || []).forEach(function (p) { if (p.date.slice(0, 7) === month) { earned += p.amount; paymentsCount++; } });
+    });
+    return { owed: owed, openCount: open.length, overdue: overdue, overdueCount: overdueCount, notDue: owed - overdue, earned: earned, paymentsCount: paymentsCount };
+  }
+
+  function customerStats(state, customerId) {
+    var orders = state.orders.filter(function (o) { return o.customerId === customerId; });
+    var spent = 0, owed = 0;
+    orders.forEach(function (o) { spent += paid(o); if (isOpen(o)) owed += balance(o); });
+    return { orders: orders, spent: spent, owed: owed };
+  }
+
+  // ---- Messages (plain text, so customers can copy amounts + account numbers) ----
+  function bankLines(s) { return ['Bank: ' + s.bankName, 'Account: ' + s.accountNumber, 'Name: ' + s.accountName]; }
+  function requestMessage(o, c, s) {
+    var d = dueNow(o);
+    var lbl = d.kind === 'deposit' ? 'Deposit due' : d.kind === 'balance' ? 'Balance due' : 'Amount due';
+    return ['Hi ' + firstName(c) + "! Here's your payment request from " + s.businessName + ' (' + o.number + ').',
+      lbl + ': ' + naira(d.amount) + ' by ' + fmtDate(o.deadline)]
+      .concat(bankLines(s)).concat(['Thank you!']).join('\n');
+  }
+  function paymentDetails(s, o, amount) {
+    var lines = bankLines(s);
+    if (amount) lines.push('Amount: ' + naira(amount));
+    if (o) lines.push('Reference: ' + o.number);
+    return lines.join('\n');
+  }
+  function reminderMessage(tone, o, c, s, today) {
+    var d = dueNow(o), amt = naira(d.amount), name = firstName(c), item = orderTitle(o).toLowerCase();
+    var what = d.kind === 'deposit' ? 'deposit' : d.kind === 'balance' ? 'balance' : 'payment';
+    var past = diffDays(today, o.deadline) > 0, date = fmtShort(o.deadline);
+    var bank = bankLines(s).join('\n');
+    if (tone === 'neutral') {
+      return 'Hello ' + name + ', this is a reminder that ' + amt + ' is due for ' + o.number + ' (' + item + ')' +
+        (past ? ', which was due on ' + date + '.' : ' by ' + date + '.') +
+        '\n\n' + bank + '\n\nPlease send proof of payment once done. Thank you.';
+    }
+    if (tone === 'firm') {
+      return 'Hi ' + name + ', your ' + what + ' of ' + amt + ' for ' + o.number +
+        (past ? ' was due on ' + date + '. Please make payment today so I can complete your order.'
+              : ' is due on ' + date + '. Please make payment by then so I can complete your order on time.') +
+        '\n\n' + bank + '\n\nIf you have already paid, kindly send the receipt so I can confirm.';
+    }
+    return 'Hi ' + name + ", hope you're well! Just a little reminder that the " + amt + ' ' + what + ' for your ' + item +
+      ' (' + o.number + ') is still open. Here are my details again:\n\n' + bank + '\n\nThank you so much!';
+  }
+  function receiptMessage(o, c, s) {
+    var pays = (o.payments || []).slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; })
+      .map(function (p) { return naira(p.amount) + ' on ' + fmtShort(p.date); }).join(', ');
+    return ['Hi ' + firstName(c) + "! Here's your receipt from " + s.businessName + ' (' + o.number + ').',
+      'Total: ' + naira(total(o)), 'Paid: ' + pays, 'Balance: ' + naira(Math.max(balance(o), 0)),
+      'Thank you for your order!'].join('\n');
+  }
+
+  // ---- Storage: localStorage with in-memory fallback ----
+  var Store = (function () {
+    var mem = {}, ok = false;
+    try { var k = '__tally_test'; root.localStorage.setItem(k, '1'); root.localStorage.removeItem(k); ok = true; } catch (e) { ok = false; }
+    return {
+      persistent: ok,
+      get: function (key) {
+        try { if (ok) { var v = root.localStorage.getItem(key); if (v != null) return JSON.parse(v); } } catch (e) {}
+        try { return key in mem ? JSON.parse(mem[key]) : null; } catch (e) { return null; }
+      },
+      set: function (key, val) {
+        var s = JSON.stringify(val); mem[key] = s;
+        try { if (ok) root.localStorage.setItem(key, s); } catch (e) {}
+      }
+    };
+  })();
+
+  function emptyState() { return { version: 1, seller: null, customers: [], orders: [], nextNumber: 1 }; }
+
+  // ---- Sample data (relative to today) ----
+  function buildSample(today) {
+    var monthStart = today.slice(0, 8) + '01';
+    var thisMonth = function (n) { var d = addDays(today, -n); return d < monthStart ? monthStart : d; };
+    var lastMonth = function (n) { return addDays(monthStart, -n); };
+    var pid = 0;
+    var pay = function (amount, date, note) { return { id: 'p' + (++pid), amount: amount, date: date, note: note || '' }; };
+    var cust = function (id, name, phone, handle, created) { return { id: id, name: name, phone: phone, instagramHandle: handle, createdAt: created }; };
+    var customers = [
+      cust('c_amaka', 'Amaka Obi', '0803 123 4567', '@amaka.styles', lastMonth(60)),
+      cust('c_tolu', 'Tolu Bello', '0812 555 0198', '@tolu_b', lastMonth(40)),
+      cust('c_zainab', 'Zainab Musa', '0706 234 8890', '@zee.musa', lastMonth(50)),
+      cust('c_chidi', 'Chidi Eze', '0905 112 3344', '@chidi.eze', addDays(today, -6)),
+      cust('c_fatima', 'Fatima Ali', '0817 900 2211', '@fatimaa', lastMonth(20)),
+      cust('c_kemi', 'Kemi Ade', '0802 345 6789', '@kemi.ade', addDays(today, -3)),
+      cust('c_ngozi', 'Ngozi Okafor', '0703 456 1122', '@ngozi.o', lastMonth(30)),
+      cust('c_bisi', 'Bisi Adeyemi', '0816 777 4433', '@bisi.makes', lastMonth(25)),
+      cust('c_halima', 'Halima Yusuf', '0909 222 5566', '@halima.y', lastMonth(15))
+    ];
+    var item = function (name, quantity, unitPrice) { return { name: name, quantity: quantity, unitPrice: unitPrice }; };
+    var mk = function (num, customerId, items, o) {
+      return {
+        id: 'o' + num, number: invNumber(num), customerId: customerId, items: items,
+        deliveryFee: o.delivery || 0, discount: o.discount || { type: 'amount', value: 0 },
+        depositRequired: o.deposit || 0, deadline: o.deadline, payments: o.payments || [],
+        createdAt: o.created, sharedAt: o.draft ? null : o.created, deliveredAt: o.delivered || null
+      };
+    };
+    var orders = [
+      // 5 fully paid orders, all money received this month: 18,000 + 12,000 + 25,000 + 15,000 + 26,000 = ₦96,000
+      mk(36, 'c_amaka', [item('Crochet bag', 1, 16000)], { delivery: 2000, deposit: 9000, created: lastMonth(9), deadline: thisMonth(9),
+        payments: [pay(9000, thisMonth(15), 'Deposit'), pay(9000, thisMonth(9), 'Balance')], delivered: thisMonth(8) }),
+      mk(37, 'c_ngozi', [item('Hair scrunchie', 4, 3000)], { created: lastMonth(4), deadline: thisMonth(12),
+        payments: [pay(12000, thisMonth(12))], delivered: thisMonth(11) }),
+      mk(38, 'c_bisi', [item('Baby blanket', 1, 22000)], { delivery: 3000, deposit: 12500, created: lastMonth(6), deadline: thisMonth(4),
+        payments: [pay(12500, thisMonth(8), 'Deposit'), pay(12500, thisMonth(4), 'Balance')], delivered: thisMonth(3) }),
+      mk(39, 'c_zainab', [item('Headband set', 1, 15000)], { created: lastMonth(2), deadline: thisMonth(6),
+        payments: [pay(15000, thisMonth(6))], delivered: thisMonth(5) }),
+      mk(40, 'c_halima', [item('Crochet tote', 1, 24000)], { delivery: 2000, deposit: 13000, created: lastMonth(1), deadline: thisMonth(1),
+        payments: [pay(13000, thisMonth(3), 'Deposit'), pay(13000, thisMonth(1), 'Balance')] }),
+      // 6 open orders
+      mk(41, 'c_amaka', [item('Chunky cardigan', 1, 47000)], { delivery: 3000, deposit: 25000, created: lastMonth(6), deadline: addDays(today, -3),
+        payments: [pay(25000, lastMonth(4), 'Deposit via GTBank transfer')] }),
+      mk(42, 'c_tolu', [item('Scrunchie set', 2, 8000), item('Crochet bag', 1, 55000)], { delivery: 3000, deposit: 37000, created: addDays(today, -9), deadline: addDays(today, -1) }),
+      mk(43, 'c_zainab', [item('Bucket hat set', 1, 35000)], { delivery: 2000, deposit: 18500, created: lastMonth(5), deadline: addDays(today, 2),
+        payments: [pay(18500, lastMonth(3), 'Deposit')] }),
+      mk(44, 'c_chidi', [item('Beanie', 3, 10000)], { deposit: 15000, created: addDays(today, -4), deadline: addDays(today, 3) }),
+      mk(45, 'c_fatima', [item('Crochet top', 1, 62000)], { delivery: 3000, discount: { type: 'amount', value: 5000 }, deposit: 15000, created: lastMonth(3), deadline: addDays(today, 8),
+        payments: [pay(15000, lastMonth(2), 'Deposit')] }),
+      mk(46, 'c_kemi', [item('Cardigan', 1, 90000)], { delivery: 2500, discount: { type: 'percent', value: 5 }, deposit: 44000, created: addDays(today, -2), deadline: addDays(today, 10) }),
+      // 1 draft
+      mk(47, 'c_ngozi', [item('Crochet dress', 1, 68000)], { delivery: 2000, deposit: 35000, created: today, deadline: addDays(today, 14), draft: true })
+    ];
+    return {
+      version: 1,
+      seller: { businessName: 'Mimi Crochets', logoInitials: 'MC', bankName: 'GTBank', accountNumber: '0123456789', accountName: 'Mimi Crochets', phone: '0803 000 1122', defaultReminderTone: 'friendly' },
+      customers: customers, orders: orders, nextNumber: 48
+    };
+  }
+
+  root.Core = {
+    toISO: toISO, todayISO: todayISO, parseISO: parseISO, addDays: addDays, diffDays: diffDays,
+    fmtDate: fmtDate, fmtShort: fmtShort, fmtLong: fmtLong, monthName: monthName, relDays: relDays,
+    commas: commas, naira: naira, toWaNumber: toWaNumber, waLink: waLink, uid: uid, invNumber: invNumber,
+    subtotal: subtotal, discountAmount: discountAmount, total: total, paid: paid, balance: balance,
+    status: status, isOpen: isOpen, daysLate: daysLate, lateLabel: lateLabel, dueNow: dueNow,
+    orderTitle: orderTitle, firstName: firstName, sortOrders: sortOrders, summary: summary, customerStats: customerStats,
+    requestMessage: requestMessage, paymentDetails: paymentDetails, reminderMessage: reminderMessage, receiptMessage: receiptMessage,
+    Store: Store, emptyState: emptyState, buildSample: buildSample
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" crossorigin></script>
+<!-- Image export. If this fails to load (offline, blocked CDN) the app falls back to window.print(). -->
+<script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo } = React;
+const C = window.Core;
+const KEY = 'tally_state_v1';
+const naira = C.naira;
+
+/* =========================================================================
+   Shared helpers
+   ========================================================================= */
+const AV = ['#F1ECEA', '#E9EEF3', '#ECEFEA', '#F0EDF3'];
+function avColor(id) { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return AV[h % AV.length]; }
+function initialsOf(name) { return String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase(); }
+function normHandle(h) { const v = String(h || '').trim().replace(/\s+/g, ''); if (!v) return ''; return v[0] === '@' ? v : '@' + v; }
+function greeting() { const h = new Date().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; }
+const KIND_LABEL = { deposit: 'Deposit', balance: 'Balance', full: 'Full amount', none: 'Paid' };
+const STATUS = {
+  draft: { label: 'Draft', cls: 'st-draft' },
+  deposit: { label: 'Awaiting deposit', cls: 'st-deposit' },
+  balance: { label: 'Balance due', cls: 'st-balance' },
+  paid: { label: 'Fully paid', cls: 'st-paid' }
+};
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (e) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand('copy'); document.body.removeChild(ta); return ok;
+    } catch (e2) { return false; }
+  }
+}
+function openWhatsApp(phone, text) { window.open(C.waLink(phone, text), '_blank', 'noopener'); }
+
+// Download the customer-facing document as a PNG using html-to-image.
+// FALLBACK: if the library didn't load or rendering fails (e.g. cross-origin fonts),
+// we open the browser print dialog instead. Print CSS isolates `.printable`, so the
+// seller can choose "Save as PDF". The caller tells the user which one happened.
+async function downloadDoc(node, filename) {
+  if (node && window.htmlToImage) {
+    try {
+      const url = await window.htmlToImage.toPng(node, { pixelRatio: 2, backgroundColor: '#F2EFE8', cacheBust: true });
+      const a = document.createElement('a'); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      return 'image';
+    } catch (e) { console.warn('html-to-image failed, falling back to print', e); }
+  }
+  window.print();
+  return 'print';
+}
+
+/* =========================================================================
+   Icons (stroke style)
+   ========================================================================= */
+// Icons: Hugeicons free set, stroke-rounded (MIT) — https://hugeicons.com
+const ICONS = {
+  home: <><path d="M3 11.9896V14.5C3 17.7998 3 19.4497 4.02513 20.4749C5.05025 21.5 6.70017 21.5 10 21.5H14C17.2998 21.5 18.9497 21.5 19.9749 20.4749C21 19.4497 21 17.7998 21 14.5V11.9896C21 10.3083 21 9.46773 20.6441 8.74005C20.2882 8.01237 19.6247 7.49628 18.2976 6.46411L16.2976 4.90855C14.2331 3.30285 13.2009 2.5 12 2.5C10.7991 2.5 9.76689 3.30285 7.70242 4.90855L5.70241 6.46411C4.37533 7.49628 3.71179 8.01237 3.3559 8.74005C3 9.46773 3 10.3083 3 11.9896Z" /></>,
+  orders: <><path d="M4 18.6458V8.05426C4 5.20025 4 3.77325 4.87868 2.88663C5.75736 2 7.17157 2 10 2H14C16.8284 2 18.2426 2 19.1213 2.88663C20 3.77325 20 5.20025 20 8.05426V18.6458C20 20.1575 20 20.9133 19.538 21.2108C18.7831 21.6971 17.6161 20.6774 17.0291 20.3073C16.5441 20.0014 16.3017 19.8485 16.0325 19.8397C15.7417 19.8301 15.4949 19.9768 14.9709 20.3073L13.06 21.5124C12.5445 21.8374 12.2868 22 12 22C11.7132 22 11.4555 21.8374 10.94 21.5124L9.02913 20.3073C8.54415 20.0014 8.30166 19.8485 8.03253 19.8397C7.74172 19.8301 7.49493 19.9768 6.97087 20.3073C6.38395 20.6774 5.21687 21.6971 4.46195 21.2108C4 20.9133 4 20.1575 4 18.6458Z" /><path d="M11 11H8" /><path d="M14 7L8 7" /></>,
+  users: <><path d="M16 21C15.7668 18.0685 13.3422 15.7477 10.3085 15.5521L9.49999 15.5C9.21121 15.5076 8.94209 15.5178 8.68816 15.5298C5.68124 15.6723 3.23089 18.0974 3 21" /><path d="M12.75 9.75C12.75 11.5449 11.2949 13 9.5 13C7.70508 13 6.25 11.5449 6.25 9.75C6.25 7.95507 7.70508 6.5 9.5 6.5C11.2949 6.5 12.75 7.95507 12.75 9.75Z" /><path d="M21 17.501C20.7709 14.6314 18.4541 12.2748 15.5 11.9961" /><path d="M15.9877 9C16.8965 8.42434 17.5001 7.40788 17.5001 6.25C17.5001 4.45507 16.0496 3 14.2602 3C13.3811 3 12.5838 3.35121 12.0001 3.92139" /></>,
+  settings: <><path d="M15.5 12C15.5 13.933 13.933 15.5 12 15.5C10.067 15.5 8.5 13.933 8.5 12C8.5 10.067 10.067 8.5 12 8.5C13.933 8.5 15.5 10.067 15.5 12Z" /><path d="M21.011 14.0965C21.5329 13.9558 21.7939 13.8854 21.8969 13.7508C22 13.6163 22 13.3998 22 12.9669V11.0332C22 10.6003 22 10.3838 21.8969 10.2493C21.7938 10.1147 21.5329 10.0443 21.011 9.90358C19.0606 9.37759 17.8399 7.33851 18.3433 5.40087C18.4817 4.86799 18.5509 4.60156 18.4848 4.44529C18.4187 4.28902 18.2291 4.18134 17.8497 3.96596L16.125 2.98673C15.7528 2.77539 15.5667 2.66972 15.3997 2.69222C15.2326 2.71472 15.0442 2.90273 14.6672 3.27873C13.208 4.73448 10.7936 4.73442 9.33434 3.27864C8.95743 2.90263 8.76898 2.71463 8.60193 2.69212C8.43489 2.66962 8.24877 2.77529 7.87653 2.98663L6.15184 3.96587C5.77253 4.18123 5.58287 4.28891 5.51678 4.44515C5.45068 4.6014 5.51987 4.86787 5.65825 5.4008C6.16137 7.3385 4.93972 9.37763 2.98902 9.9036C2.46712 10.0443 2.20617 10.1147 2.10308 10.2492C2 10.3838 2 10.6003 2 11.0332V12.9669C2 13.3998 2 13.6163 2.10308 13.7508C2.20615 13.8854 2.46711 13.9558 2.98902 14.0965C4.9394 14.6225 6.16008 16.6616 5.65672 18.5992C5.51829 19.1321 5.44907 19.3985 5.51516 19.5548C5.58126 19.7111 5.77092 19.8188 6.15025 20.0341L7.87495 21.0134C8.24721 21.2247 8.43334 21.3304 8.6004 21.3079C8.76746 21.2854 8.95588 21.0973 9.33271 20.7213C10.7927 19.2644 13.2088 19.2643 14.6689 20.7212C15.0457 21.0973 15.2341 21.2853 15.4012 21.3078C15.5682 21.3303 15.7544 21.2246 16.1266 21.0133L17.8513 20.034C18.2307 19.8187 18.4204 19.711 18.4864 19.5547C18.5525 19.3984 18.4833 19.132 18.3448 18.5991C17.8412 16.6616 19.0609 14.6226 21.011 14.0965Z" /></>,
+  plus: <><path d="M12.001 4.00101V20.001" /><path d="M20.001 12.001L4.00098 12.001" /></>,
+  minus: <><path d="M20 12L4 12" /></>,
+  back: <><path d="M15 6C15 6 9.00001 10.4189 9 12C8.99999 13.5812 15 18 15 18" /></>,
+  chevron: <><path d="M9.00005 6C9.00005 6 15 10.4189 15 12C15 13.5812 9 18 9 18" /></>,
+  x: <><path d="M18.9991 19L5 5.00098" /><path d="M19 5L5.00092 18.999" /></>,
+  arrow: <><path d="M18.5 12L4.99997 12" /><path d="M13 18C13 18 19 13.5811 19 12C19 10.4188 13 6 13 6" /></>,
+  search: <><path d="M17 17L21 21" /><path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z" /></>,
+  chat: <><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.3789 2.27907 14.6926 2.78382 15.8877C3.06278 16.5481 3.20226 16.8784 3.21953 17.128C3.2368 17.3776 3.16334 17.6521 3.01642 18.2012L2 22L5.79877 20.9836C6.34788 20.8367 6.62244 20.7632 6.87202 20.7805C7.12161 20.7977 7.45185 20.9372 8.11235 21.2162C9.30745 21.7209 10.6211 22 12 22Z" /><path d="M8.58815 12.3773L9.45909 11.2956C9.82616 10.8397 10.2799 10.4153 10.3155 9.80826C10.3244 9.65494 10.2166 8.96657 10.0008 7.58986C9.91601 7.04881 9.41086 7 8.97332 7C8.40314 7 8.11805 7 7.83495 7.12931C7.47714 7.29275 7.10979 7.75231 7.02917 8.13733C6.96539 8.44196 7.01279 8.65187 7.10759 9.07169C7.51023 10.8548 8.45481 12.6158 9.91948 14.0805C11.3842 15.5452 13.1452 16.4898 14.9283 16.8924C15.3481 16.9872 15.558 17.0346 15.8627 16.9708C16.2477 16.8902 16.7072 16.5229 16.8707 16.165C17 15.8819 17 15.5969 17 15.0267C17 14.5891 16.9512 14.084 16.4101 13.9992C15.0334 13.7834 14.3451 13.6756 14.1917 13.6845C13.5847 13.7201 13.1603 14.1738 12.7044 14.5409L11.6227 15.4118" /></>,
+  download: <><path d="M16.9504 12.1817C17.1981 12.814 16.5076 13.5726 15.1267 15.0899C13.6702 16.6902 12.9201 17.4904 12 17.5C11.0799 17.4904 10.3298 16.6902 8.87331 15.0899C7.49239 13.5726 6.80193 12.814 7.04964 12.1817C7.05868 12.1586 7.06851 12.1359 7.0791 12.1135C7.34928 11.542 8.24477 11.5029 10 11.5002V4.99998C10 4.53501 10 4.30253 10.0511 4.11179C10.1898 3.59414 10.5941 3.1898 11.1118 3.05111C11.3025 3 11.535 3 12 3C12.4649 3 12.6974 3 12.8882 3.05111C13.4058 3.1898 13.8102 3.59414 13.9489 4.11179C14 4.30253 14 4.53501 14 4.99998V11.5002C15.7552 11.5029 16.6507 11.542 16.9209 12.1135C16.9315 12.1359 16.9413 12.1586 16.9504 12.1817Z" /><path d="M5.00006 21H19.0001" /></>,
+  copy: <><path d="M7.5 14.5C7.5 11.2002 7.5 9.55025 8.52513 8.52513C9.55025 7.5 11.2002 7.5 14.5 7.5C17.7998 7.5 19.4497 7.5 20.4749 8.52513C21.5 9.55025 21.5 11.2002 21.5 14.5C21.5 17.7998 21.5 19.4497 20.4749 20.4749C19.4497 21.5 17.7998 21.5 14.5 21.5C11.2002 21.5 9.55025 21.5 8.52513 20.4749C7.5 19.4497 7.5 17.7998 7.5 14.5Z" /><path d="M7.5 16.5C6.10355 16.5 5.40533 16.5 4.84402 16.3036C3.83866 15.9518 3.0482 15.1613 2.69641 14.156C2.5 13.5947 2.5 12.8964 2.5 11.5V9.5C2.5 6.20017 2.5 4.55025 3.52513 3.52513C4.55025 2.5 6.20017 2.5 9.5 2.5H11.5C12.8964 2.5 13.5947 2.5 14.156 2.69641C15.1613 3.0482 15.9518 3.83866 16.3036 4.84402C16.5 5.40533 16.5 6.10355 16.5 7.5" /></>,
+  check: <><path d="M5 14L8.5 17.5L19 6.5" /></>,
+  bell: <><path d="M20 18.5011L18.349 7.93407C17.8603 4.80601 15.166 2.5 12 2.5C8.83398 2.5 6.13971 4.80601 5.65098 7.93407L4 18.5011" /><path d="M20 18.5C20 16.8431 16.4183 15.5 12 15.5C7.58172 15.5 4 16.8431 4 18.5C4 20.1569 7.58172 21.5 12 21.5C16.4183 21.5 20 20.1569 20 18.5Z" /><path d="M13 18.5H11" /></>,
+  cash: <><path d="M14.4998 12.001C14.4998 13.3817 13.3805 14.501 11.9998 14.501C10.6191 14.501 9.49982 13.3817 9.49982 12.001C9.49982 10.6203 10.6191 9.50098 11.9998 9.50098C13.3805 9.50098 14.4998 10.6203 14.4998 12.001Z" /><path d="M21.1329 5.6773C20.1903 5.38518 18.4794 5.00098 16 5.00098C11.4209 5.00098 10.1967 6.67844 3.87798 5.42458C2.92079 5.23464 2 5.94628 2 6.92214V16.9392C2 17.6275 2.47265 18.232 3.1448 18.3802C10.1096 19.9161 11.2491 18.1104 16 18.1104C17.5107 18.1104 18.7361 18.253 19.6762 18.4305C20.7719 18.6374 22 17.7984 22 16.6833V6.92803C22 6.35987 21.6756 5.84549 21.1329 5.6773Z" /><path d="M2.00049 14.4971C4.20963 14.4971 6.00049 16.2879 6.00049 18.4971M22 9.46997C20.2655 9.46997 18.5005 7.54062 18.5005 5.50098M5.92901 5.75514C5.70483 7.40605 3.95133 9.00098 2 9.00098M18.102 18.0993C18.2601 16.3112 20.1009 15.001 22 15.001" /></>,
+  truck: <><path d="M19.5 17.5C19.5 18.8807 18.3807 20 17 20C15.6193 20 14.5 18.8807 14.5 17.5C14.5 16.1193 15.6193 15 17 15C18.3807 15 19.5 16.1193 19.5 17.5Z" /><path d="M9.5 17.5C9.5 18.8807 8.38071 20 7 20C5.61929 20 4.5 18.8807 4.5 17.5C4.5 16.1193 5.61929 15 7 15C8.38071 15 9.5 16.1193 9.5 17.5Z" /><path d="M14.5 17.5H9.5M19.5 17.5H20.2632C20.4831 17.5 20.5931 17.5 20.6855 17.4885C21.3669 17.4036 21.9036 16.8669 21.9885 16.1855C22 16.0931 22 15.9831 22 15.7632V13C22 9.41015 19.0899 6.5 15.5 6.5M2 4H12C13.4142 4 14.1213 4 14.5607 4.43934C15 4.87868 15 5.58579 15 7V15.5M2 12.75V15C2 15.9346 2 16.4019 2.20096 16.75C2.33261 16.978 2.52197 17.1674 2.75 17.299C3.09808 17.5 3.56538 17.5 4.5 17.5" /><path d="M2 7H8M2 10H6" /></>,
+  receipt: <><path d="M20.016 2C18.9026 2 18 4.68629 18 8H20.016C20.9876 8 21.4734 8 21.7741 7.66455C22.0749 7.32909 22.0225 6.88733 21.9178 6.00381C21.6414 3.67143 20.8943 2 20.016 2Z" /><path d="M18 8.05426V18.6458C18 20.1575 18 20.9133 17.538 21.2108C16.7831 21.6971 15.6161 20.6774 15.0291 20.3073C14.5441 20.0014 14.3017 19.8485 14.0325 19.8397C13.7417 19.8301 13.4949 19.9768 12.9709 20.3073L11.06 21.5124C10.5445 21.8374 10.2868 22 10 22C9.71321 22 9.45546 21.8374 8.94 21.5124L7.02913 20.3073C6.54415 20.0014 6.30166 19.8485 6.03253 19.8397C5.74172 19.8301 5.49493 19.9768 4.97087 20.3073C4.38395 20.6774 3.21687 21.6971 2.46195 21.2108C2 20.9133 2 20.1575 2 18.6458V8.05426C2 5.20025 2 3.77325 2.87868 2.88663C3.75736 2 5.17157 2 8 2H20" /><path d="M6 6H14" /><path d="M8 10H6" /><path d="M12.5 10.875C11.6716 10.875 11 11.4626 11 12.1875C11 12.9124 11.6716 13.5 12.5 13.5C13.3284 13.5 14 14.0876 14 14.8125C14 15.5374 13.3284 16.125 12.5 16.125M12.5 10.875C13.1531 10.875 13.7087 11.2402 13.9146 11.75M12.5 10.875V10M12.5 16.125C11.8469 16.125 11.2913 15.7598 11.0854 15.25M12.5 16.125V17" /></>,
+  send: <><path d="M21.0477 3.05293C18.8697 0.707363 2.48648 6.4532 2.50001 8.551C2.51535 10.9299 8.89809 11.6617 10.6672 12.1581C11.7311 12.4565 12.016 12.7625 12.2613 13.8781C13.3723 18.9305 13.9301 21.4435 15.2014 21.4996C17.2278 21.5892 23.1733 5.342 21.0477 3.05293Z" /><path d="M11.4999 12.5L14.9999 9" /></>,
+  trash: <><path d="M18.8516 16.3743L19.5 6H4.5L5.14839 16.3743C5.315 19.0401 5.39831 20.373 6.26426 21.1865C7.13021 22 8.46571 22 11.1367 22H12.8633C15.5343 22 16.8698 22 17.7357 21.1865C18.6017 20.373 18.685 19.0401 18.8516 16.3743Z" /><path d="M16 6H21M16 6L15.3778 4.34082C15.0007 3.33524 14.8122 2.83245 14.4402 2.50292C14.3213 2.39765 14.1904 2.3069 14.0501 2.2326C13.6109 2 13.074 2 12 2C10.926 2 10.3891 2 9.9499 2.2326C9.8096 2.3069 9.67865 2.39765 9.55982 2.50292C9.18783 2.83245 8.99928 3.33524 8.62219 4.34082L8 6M16 6H8M3 6H8" /><path d="M9.5 11V17M14.5 11V17" /></>,
+  edit: <><path d="M16.4249 4.60509L17.4149 3.6151C18.2351 2.79497 19.5648 2.79497 20.3849 3.6151C21.205 4.43524 21.205 5.76493 20.3849 6.58507L19.3949 7.57506M16.4249 4.60509L9.76558 11.2644C9.25807 11.772 8.89804 12.4078 8.72397 13.1041L8 16L10.8959 15.276C11.5922 15.102 12.228 14.7419 12.7356 14.2344L19.3949 7.57506M16.4249 4.60509L19.3949 7.57506" /><path d="M18.9999 13.5C18.9999 16.7875 18.9999 18.4312 18.092 19.5376C17.9258 19.7401 17.7401 19.9258 17.5375 20.092C16.4312 21 14.7874 21 11.4999 21H11C7.22876 21 5.34316 21 4.17159 19.8284C3.00003 18.6569 3 16.7712 3 13V12.5C3 9.21252 3 7.56879 3.90794 6.46244C4.07417 6.2599 4.2599 6.07417 4.46244 5.90794C5.56879 5 7.21252 5 10.5 5" /></>,
+  calendar: <><path d="M16 2V6M8 2V6" /><path d="M13 4H11C7.22876 4 5.34315 4 4.17157 5.17157C3 6.34315 3 8.22876 3 12V14C3 17.7712 3 19.6569 4.17157 20.8284C5.34315 22 7.22876 22 11 22H13C16.7712 22 18.6569 22 19.8284 20.8284C21 19.6569 21 17.7712 21 14V12C21 8.22876 21 6.34315 19.8284 5.17157C18.6569 4 16.7712 4 13 4Z" /><path d="M3 10H21" /><path d="M12.1258 14H12.0008M12.1258 18H12.0008M7.625 14H7.5M7.625 18H7.5M16.625 14H16.5M12.2508 14C12.2508 14.1381 12.1389 14.25 12.0008 14.25C11.8628 14.25 11.7508 14.1381 11.7508 14C11.7508 13.8619 11.8628 13.75 12.0008 13.75C12.1389 13.75 12.2508 13.8619 12.2508 14ZM12.2508 18C12.2508 18.1381 12.1389 18.25 12.0008 18.25C11.8628 18.25 11.7508 18.1381 11.7508 18C11.7508 17.8619 11.8628 17.75 12.0008 17.75C12.1389 17.75 12.2508 17.8619 12.2508 18ZM7.75 14C7.75 14.1381 7.63807 14.25 7.5 14.25C7.36193 14.25 7.25 14.1381 7.25 14C7.25 13.8619 7.36193 13.75 7.5 13.75C7.63807 13.75 7.75 13.8619 7.75 14ZM7.75 18C7.75 18.1381 7.63807 18.25 7.5 18.25C7.36193 18.25 7.25 18.1381 7.25 18C7.25 17.8619 7.36193 17.75 7.5 17.75C7.63807 17.75 7.75 17.8619 7.75 18ZM16.75 14C16.75 14.1381 16.6381 14.25 16.5 14.25C16.3619 14.25 16.25 14.1381 16.25 14C16.25 13.8619 16.3619 13.75 16.5 13.75C16.6381 13.75 16.75 13.8619 16.75 14Z" /></>,
+  clock: <><circle cx="12" cy="12" r="10" /><path d="M12 8V12L14 14" /></>,
+  phone: <><path d="M8.04253 9.89057L8.32962 9.54607C9.13196 8.58326 9.53312 8.10186 9.67708 7.56536C9.79932 7.10976 9.79165 6.62904 9.65494 6.17757C9.49394 5.64593 9.07762 5.17757 8.24498 4.24085C7.64122 3.56162 7.33933 3.222 6.97835 3.09096C6.67272 2.98002 6.33952 2.97023 6.0279 3.06303C5.65985 3.17264 5.33854 3.49395 4.69593 4.13656L3.87514 4.95736C3.42449 5.408 3.19917 5.63332 3.08405 5.94695C2.96892 6.26057 2.99192 6.54106 3.03791 7.10204C3.64253 14.477 9.52318 20.3577 16.8981 20.9623C17.4591 21.0083 17.7396 21.0313 18.0532 20.9161C18.3669 20.801 18.5922 20.5757 19.0428 20.125L19.8636 19.3043C20.5062 18.6616 20.8275 18.3403 20.9371 17.9723C21.03 17.6607 21.0202 17.3275 20.9092 17.0218C20.7782 16.6608 20.4386 16.359 19.7593 15.7552C18.8226 14.9226 18.3542 14.5062 17.8226 14.3452C17.3711 14.2085 16.8904 14.2009 16.4348 14.3231C15.8983 14.4671 15.4169 14.8682 14.4541 15.6706L14.1096 15.9577C11.2048 14.9894 9.00786 12.7866 8.04253 9.89057Z" /></>,
+  alert: <><circle cx="12" cy="12" r="10" /><path d="M12 8V12" /><path d="M12.125 15.75H12M12.25 15.75C12.25 15.8881 12.1381 16 12 16C11.8619 16 11.75 15.8881 11.75 15.75C11.75 15.6119 11.8619 15.5 12 15.5C12.1381 15.5 12.25 15.6119 12.25 15.75Z" /></>,
+  info: <><circle cx="12" cy="12" r="10" /><path d="M12 16V12" /><path d="M12.125 8.25H12M12.25 8.25C12.25 8.11193 12.1381 8 12 8C11.8619 8 11.75 8.11193 11.75 8.25C11.75 8.38807 11.8619 8.5 12 8.5C12.1381 8.5 12.25 8.38807 12.25 8.25Z" /></>,
+  at: <><path d="M3 12C3 7.75736 3 5.63604 4.31802 4.31802C5.63604 3 7.75736 3 12 3C16.2426 3 18.364 3 19.682 4.31802C21 5.63604 21 7.75736 21 12C21 16.2426 21 18.364 19.682 19.682C18.364 21 16.2426 21 12 21C7.75736 21 5.63604 21 4.31802 19.682C3 18.364 3 16.2426 3 12Z" /><path d="M16 12C16 14.2091 14.2091 16 12 16C9.79086 16 8 14.2091 8 12C8 9.79086 9.79086 8 12 8C14.2091 8 16 9.79086 16 12Z" /><path d="M17.3748 6.75024H17.2498M17.4998 6.75024C17.4998 6.88832 17.3878 7.00024 17.2498 7.00024C17.1117 7.00024 16.9998 6.88832 16.9998 6.75024C16.9998 6.61217 17.1117 6.50024 17.2498 6.50024C17.3878 6.50024 17.4998 6.61217 17.4998 6.75024Z" /></>,
+  bank: <><path d="M12.125 5.75H12M12.25 5.75C12.25 5.88807 12.1381 6 12 6C11.8619 6 11.75 5.88807 11.75 5.75C11.75 5.61193 11.8619 5.5 12 5.5C12.1381 5.5 12.25 5.61193 12.25 5.75Z" /><path d="M9 9V19M5 19V9" /><path d="M19 9V19M15 19V9" /><path d="M2.64822 9H21.3518C21.7098 9 22 8.70651 22 8.34447C22 8.12259 21.889 7.91577 21.7051 7.79485L15.2699 3.56485C13.6829 2.52162 12.8893 2 12 2C11.1107 2 10.3171 2.52162 8.73007 3.56485L2.29495 7.79485C2.11099 7.91577 2 8.12259 2 8.34447C2 8.70651 2.29022 9 2.64822 9Z" /><path d="M20.3519 19.5858L21.0397 20.2929C21.7464 21.0194 22.0998 21.3827 21.9754 21.6913C21.8511 22 21.3513 22 20.3519 22H3.64814C2.64867 22 2.14893 22 2.02456 21.6913C1.9002 21.3827 2.25356 21.0194 2.9603 20.2929L3.64814 19.5858C3.92929 19.2968 4.06987 19.1522 4.24863 19.0761C4.4274 19 4.62621 19 5.02382 19H18.9762C19.3738 19 19.5726 19 19.7514 19.0761C19.9301 19.1522 20.0707 19.2968 20.3519 19.5858Z" /></>,
+  refresh: <><path d="M20.0092 2V5.13219C20.0092 5.42605 19.6418 5.55908 19.4537 5.33333C17.6226 3.2875 14.9617 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12" /></>,
+};
+function Icon({ name, size = 22, stroke = 1.7, className }) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      {ICONS[name]}
+    </svg>
+  );
+}
+
+/* =========================================================================
+   Small components
+   ========================================================================= */
+function Avatar({ name, id, size = 44, bg, fg, text }) {
+  return <span className={'avatar' + (bg ? ' brand' : '')} aria-hidden="true" style={{ width: size, height: size, fontSize: size * 0.34, background: bg || avColor(id || name), color: fg, borderColor: bg && fg ? bg : undefined }}>{text || initialsOf(name)}</span>;
+}
+// Display money: serif numerals with a small raised ₦ (textContent stays "₦12,345")
+function Amount({ value }) { return <span className="amt"><span className="cur">₦</span>{C.commas(value)}</span>; }
+function LatePill({ days }) { return <span className="pill pill-late"><Icon name="clock" size={14} /><span className="pill-t">{C.lateLabel(days)}</span></span>; }
+function StatusPills({ order, today }) {
+  const s = C.status(order), late = C.daysLate(order, today);
+  return <span className="pills"><span className={'pill ' + STATUS[s].cls}>{STATUS[s].label}</span>{late > 0 && <LatePill days={late} />}</span>;
+}
+function TopBar({ title, onBack, right }) {
+  return (
+    <header className="topbar">
+      {onBack && <button className="icon-btn" aria-label="Back" onClick={onBack}><Icon name="back" /></button>}
+      <h1 tabIndex={-1}>{title}</h1>
+      {right}
+    </header>
+  );
+}
+function Field({ id, label, error, hint, children }) {
+  return (
+    <div className="field">
+      <label htmlFor={id}>{label}</label>
+      {children}
+      {hint && !error && <p className="hint" id={id + '-hint'}>{hint}</p>}
+      {error && <p className="error" id={id + '-err'}><Icon name="alert" size={16} />{error}</p>}
+    </div>
+  );
+}
+function NumInput({ id, value, onChange, prefix = '₦', suffix, error, label, max = 9999999999, describedBy }) {
+  return (
+    <div className="affix" data-invalid={error ? 'true' : undefined}>
+      {prefix && <span aria-hidden="true">{prefix}</span>}
+      <input id={id} inputMode="numeric" autoComplete="off" placeholder="0"
+        aria-label={label} aria-invalid={error ? 'true' : undefined}
+        aria-describedby={error ? id + '-err' : describedBy}
+        value={value ? C.commas(value) : ''}
+        onChange={e => { const d = e.target.value.replace(/\D/g, '').slice(0, 10); onChange(d ? Math.min(parseInt(d, 10), max) : 0); }} />
+      {suffix && <span aria-hidden="true">{suffix}</span>}
+    </div>
+  );
+}
+function Stepper({ value, onChange, label }) {
+  return (
+    <div className="stepper" role="group" aria-label={label}>
+      <button type="button" aria-label={'Decrease ' + label} disabled={value <= 1} onClick={() => onChange(Math.max(1, value - 1))}><Icon name="minus" size={18} /></button>
+      <output aria-live="polite">{value}</output>
+      <button type="button" aria-label={'Increase ' + label} onClick={() => onChange(Math.min(999, value + 1))}><Icon name="plus" size={18} /></button>
+    </div>
+  );
+}
+function Seg({ label, options, value, onChange }) {
+  return (
+    <div className="seg" role="group" aria-label={label}>
+      {options.map(o => <button key={o.value} type="button" aria-pressed={value === o.value} onClick={() => onChange(o.value)}>{o.label}</button>)}
+    </div>
+  );
+}
+function Empty({ icon = 'orders', title, children, action }) {
+  return (
+    <div className="empty">
+      <Shapes small />
+      <h3>{title}</h3>
+      <p>{children}</p>
+      {action}
+    </div>
+  );
+}
+// Illustration made from simple shapes (no images)
+function Shapes({ small }) {
+  const w = small ? 120 : 220, h = small ? 64 : 150;
+  return (
+    <svg width={w} height={h} viewBox="0 0 220 150" aria-hidden="true" focusable="false" style={{ display: 'block', margin: '0 auto' }}>
+      <circle cx="110" cy="80" r="66" fill="#E9E9EC" />
+      <rect x="66" y="26" width="88" height="112" rx="16" fill="#FFFFFF" />
+      <rect x="80" y="44" width="40" height="8" rx="4" fill="#D4D4D8" />
+      <rect x="80" y="64" width="60" height="16" rx="5" fill="#18181B" />
+      <rect x="80" y="92" width="60" height="6" rx="3" fill="#E4E4E7" />
+      <rect x="80" y="106" width="44" height="6" rx="3" fill="#E4E4E7" />
+      <circle cx="152" cy="118" r="18" fill="#2F6FEB" />
+      <path d="M144 118l5.5 5.5L160 113" stroke="#FFFFFF" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/* =========================================================================
+   Sheet (bottom sheet dialog)
+   ========================================================================= */
+function Sheet({ title, onClose, children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const prev = document.activeElement;
+    const el = ref.current;
+    const first = el.querySelector('input, textarea, select') || el.querySelector('button');
+    first && first.focus();
+    const onKey = e => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+      if (e.key === 'Tab') {
+        const f = [...el.querySelectorAll('button:not([disabled]), input, textarea, select, a[href]')];
+        if (!f.length) return;
+        const a = f[0], z = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
+        else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+      if (prev && document.contains(prev)) prev.focus();
+    };
+  }, []);
+  return (
+    <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" ref={ref}>
+        <div className="grabber" />
+        <div className="sheet-head">
+          <h2 id="sheet-title">{title}</h2>
+          <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon name="x" /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function ConfirmSheet({ s, onClose }) {
+  return (
+    <Sheet title={s.title} onClose={onClose}>
+      <p style={{ marginBottom: 20, color: 'var(--muted)' }}>{s.body}</p>
+      <div className="stack">
+        <button className={'btn btn-block ' + (s.danger ? 'btn-danger' : 'btn-yellow')} onClick={() => { onClose(); s.onConfirm(); }}>{s.confirmLabel}</button>
+        <button className="btn btn-block" onClick={onClose}>Cancel</button>
+      </div>
+    </Sheet>
+  );
+}
+
+/* =========================================================================
+   STAGE 2 — Dashboard + bottom nav
+   ========================================================================= */
+const TABS = [
+  { id: 'home', label: 'Home', icon: 'home' },
+  { id: 'orders', label: 'Orders', icon: 'orders' },
+  { id: 'customers', label: 'Customers', icon: 'users' },
+  { id: 'settings', label: 'Settings', icon: 'settings' }
+];
+function BottomNav({ active, nav, overdue }) {
+  const barRef = useRef(null);
+  const [ind, setInd] = useState(null);
+  // Measure the active tab so the green pill can slide to it
+  React.useLayoutEffect(() => {
+    const measure = () => {
+      const el = barRef.current && barRef.current.querySelector('.nav-btn.on');
+      if (el) setInd({ x: el.offsetLeft, w: el.offsetWidth });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [active, overdue]);
+  return (
+    <nav className="fixed-col nav-wrap" aria-label="Main">
+      <div className="nav" ref={barRef}>
+        {ind && <span className="nav-ind" aria-hidden="true" style={{ width: ind.w, transform: `translateX(${ind.x}px)` }} />}
+        {TABS.map(t => {
+          const on = active === t.id;
+          const count = t.id === 'orders' ? overdue : 0;
+          return (
+            <button key={t.id} className={'nav-btn' + (on ? ' on' : '')} aria-current={on ? 'page' : undefined} onClick={() => nav.tab(t.id)}>
+              <span>{t.label}</span>
+              {count > 0 && <span className="nav-count" aria-label={`${count} overdue`}><span className="pill-t">{count}</span></span>}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+function SectionHead({ id, title, count, alert, sub, action }) {
+  return (
+    <div className="section-head">
+      <div className="sh-title">
+        <h2 id={id}>{title}</h2>
+        {count != null && <span className={'badge' + (alert ? ' alert' : '')} aria-label={`${count} orders`}><span className="pill-t">{count}</span></span>}
+      </div>
+      {action || null}
+      {sub && <p className="sh-sub">{sub}</p>}
+    </div>
+  );
+}
+
+function OverdueCard({ o, ctx }) {
+  const { today, nav } = ctx;
+  const c = ctx.custById(o.customerId) || { name: 'Unknown' };
+  const due = C.dueNow(o), late = C.daysLate(o, today);
+  return (
+    <article className="ocard">
+      <button className="ocard-main" onClick={() => nav.go({ name: 'order', orderId: o.id })} aria-label={`${c.name}, ${naira(due.amount)} ${KIND_LABEL[due.kind].toLowerCase()}, ${C.lateLabel(late)}. Open order ${o.number}`}>
+        <Avatar name={c.name} id={c.id} />
+        <span className="ocard-body">
+          <span className="ocard-name">{c.name}</span>
+          <span className="ocard-sub">{C.orderTitle(o)} · {o.number}</span>
+          <span className="ocard-flag"><LatePill days={late} /></span>
+        </span>
+        <span className="ocard-end">
+          <span className="ocard-amt"><Amount value={due.amount} /></span>
+          <span className="ocard-kind">{KIND_LABEL[due.kind]}</span>
+        </span>
+      </button>
+      <button className="ocard-remind" onClick={() => nav.go({ name: 'reminder', orderId: o.id })}>
+        <span className="remind-ic"><Icon name="chat" size={17} /></span>
+        <span className="remind-txt">Send reminder on WhatsApp</span>
+        <Icon name="arrow" size={20} className="remind-arrow" />
+      </button>
+    </article>
+  );
+}
+
+function OrderRow({ o, ctx, subtitle }) {
+  const { today, nav } = ctx;
+  const c = ctx.custById(o.customerId) || { name: 'Unknown' };
+  const s = C.status(o), due = C.dueNow(o);
+  const amt = s === 'paid' ? C.total(o) : due.amount;
+  const kind = s === 'paid' ? 'Paid' : s === 'draft' ? 'Not sent' : KIND_LABEL[due.kind];
+  return (
+    <button className="row" onClick={() => nav.go({ name: 'order', orderId: o.id })}>
+      <Avatar name={c.name} id={c.id} size={40} />
+      <span className="row-main">
+        <span className="row-title">{c.name}</span>
+        <span className="row-sub">{subtitle || (C.orderTitle(o) + ' · ' + o.number)}</span>
+        {!subtitle && <span className="row-pills"><StatusPills order={o} today={today} /></span>}
+      </span>
+      <span className="row-end"><span className="row-amt">{naira(amt)}</span><span className="row-kind">{kind}</span></span>
+    </button>
+  );
+}
+
+function Dashboard({ ctx }) {
+  const { state, today, nav } = ctx;
+  const seller = state.seller;
+  const sum = C.summary(state, today);
+  const open = C.sortOrders(state.orders.filter(C.isOpen), today);
+  const overdue = open.filter(o => C.daysLate(o, today) > 0);
+  const awaiting = open.filter(o => C.daysLate(o, today) === 0);
+
+  const head = (
+    <header className="dash-head">
+      <div>
+        <p className="hello">{greeting()} · {C.fmtDate(today)}</p>
+        <h1 tabIndex={-1}>{seller.businessName}</h1>
+      </div>
+      <Avatar name={seller.businessName} text={seller.logoInitials || initialsOf(seller.businessName)} id="seller" size={48} bg="#16161A" fg="#FFFFFF" />
+    </header>
+  );
+
+  if (!state.orders.length) {
+    return (
+      <div className="screen">
+        {head}
+        <div className="empty-hero">
+          <Shapes />
+          <h2>No orders yet</h2>
+          <p>Send your first payment request. We’ll keep track of the deposit and balance so you don’t need the notebook.</p>
+          <button className="btn btn-yellow btn-lg btn-block" onClick={() => nav.go({ name: 'create' })}><Icon name="plus" /> Create your first payment request</button>
+          <p style={{ marginTop: 14 }}>
+            <button className="link-btn" onClick={() => ctx.setSheet({ type: 'confirm', title: 'Load demo data?', body: 'This replaces your shop details and orders with the Mimi Crochets sample shop. You can start fresh again from Settings.', confirmLabel: 'Load demo data', onConfirm: ctx.A.resetDemo })}>Load demo data</button>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="screen">
+      {head}
+      <section className="hero on-dark" aria-labelledby="owed-label">
+        <div className="hero-top">
+          <p id="owed-label" className="hero-label">Money owed to you</p>
+          {sum.overdueCount > 0 && <span className="hero-count">{sum.overdueCount} late</span>}
+        </div>
+        <p className="hero-amt"><Amount value={sum.owed} /></p>
+        <p className="hero-sub">{sum.openCount ? `across ${sum.openCount} open order${sum.openCount === 1 ? '' : 's'}` : 'You’re all caught up'}</p>
+        {sum.owed > 0 && (
+          <div className="split" aria-hidden="true">
+            {sum.overdue > 0 && <span className="s-late" style={{ width: Math.max(4, Math.round(sum.overdue / sum.owed * 100)) + '%' }} />}
+            {sum.notDue > 0 && <span className="s-ok" />}
+          </div>
+        )}
+        <div className="hero-pills">
+          <button className="pill pill-late" onClick={() => nav.reset({ name: 'orders', filter: 'overdue' })} aria-label={`${naira(sum.overdue)} overdue. Show overdue orders`}>
+            <span>Overdue</span><b>{naira(sum.overdue)}</b>
+          </button>
+          <span className="pill"><span>Not due yet</span><b>{naira(sum.notDue)}</b></span>
+        </div>
+      </section>
+
+      <div className="dash-row">
+        <div className="earned">
+          <p className="lbl">Earned in {C.monthName(today)}</p>
+          <p className="amt-wrap"><Amount value={sum.earned} /></p>
+          <p className="sub">{sum.paymentsCount} payment{sum.paymentsCount === 1 ? '' : 's'} received</p>
+        </div>
+        <button className="new-btn" onClick={() => nav.go({ name: 'create' })}>
+          <span className="plus"><Icon name="plus" /></span>
+          New payment request
+        </button>
+      </div>
+
+      <section className="section" aria-labelledby="sec-overdue">
+        <SectionHead id="sec-overdue" title="Overdue" count={overdue.length} alert={overdue.length > 0}
+          sub={overdue.length ? <><b>{naira(sum.overdue)}</b> owed · oldest is {C.lateLabel(C.daysLate(overdue[0], today))}</> : null} />
+        {overdue.length
+          ? overdue.map(o => <OverdueCard key={o.id} o={o} ctx={ctx} />)
+          : <Empty title="Nothing overdue">Everyone is paying on time. Orders show up here the day after their deadline.</Empty>}
+      </section>
+
+      <section className="section" aria-labelledby="sec-await">
+        <SectionHead id="sec-await" title="Awaiting payment" count={awaiting.length}
+          sub={awaiting.length ? <><b>{naira(sum.notDue)}</b> not due yet · next due {C.relDays(awaiting[0].deadline, today)}</> : null}
+          action={awaiting.length > 0 && <button className="see-all" aria-label="See all orders" onClick={() => nav.reset({ name: 'orders', filter: 'all' })}>See all <Icon name="arrow" size={16} /></button>} />
+        {awaiting.length
+          ? <div className="list">{awaiting.slice(0, 4).map(o => {
+              const due = C.dueNow(o);
+              return <OrderRow key={o.id} o={o} ctx={ctx} subtitle={`${KIND_LABEL[due.kind]} due ${C.relDays(o.deadline, today)} · ${C.fmtDate(o.deadline)}`} />;
+            })}</div>
+          : <Empty title="No payments waiting">When you send a request, it shows here until it’s paid.</Empty>}
+      </section>
+    </div>
+  );
+}
+
+/* =========================================================================
+   STAGE 3 — Create request → Preview & share
+   ========================================================================= */
+function newItem() { return { key: C.uid('i'), name: '', quantity: 1, unitPrice: 0 }; }
+function initForm(o, customerId, today) {
+  if (o) {
+    const tot = C.total(o);
+    return {
+      customerId: o.customerId, newCustomer: null, query: '',
+      items: o.items.map(i => ({ ...i, key: C.uid('i') })),
+      deliveryFee: o.deliveryFee, discountOn: !!(o.discount && o.discount.value),
+      discount: o.discount && o.discount.value ? { ...o.discount } : { type: 'amount', value: 0 },
+      depositMode: o.depositRequired === 0 ? 'none' : o.depositRequired === Math.round(tot / 2) ? 'half' : 'custom',
+      depositCustom: o.depositRequired, deadline: o.deadline
+    };
+  }
+  return {
+    customerId: customerId || null, newCustomer: null, query: '', items: [newItem()],
+    deliveryFee: 0, discountOn: false, discount: { type: 'amount', value: 0 },
+    depositMode: 'half', depositCustom: 0, deadline: C.addDays(today, 7)
+  };
+}
+
+function CustomerPicker({ ctx, f, set, error }) {
+  const { state } = ctx;
+  const picked = f.customerId && ctx.custById(f.customerId);
+  if (picked) {
+    return (
+      <div className="picked">
+        <Avatar name={picked.name} id={picked.id} size={40} />
+        <div style={{ flex: 1, minWidth: 0 }}><b>{picked.name}</b><div className="hint">{picked.instagramHandle || picked.phone}</div></div>
+        <button type="button" className="btn btn-small" onClick={() => set({ customerId: null })}>Change</button>
+      </div>
+    );
+  }
+  if (f.newCustomer) {
+    const nc = f.newCustomer;
+    const upd = p => set({ newCustomer: { ...nc, ...p } });
+    return (
+      <div>
+        <Field id="nc-name" label="Customer name" error={error}>
+          <input id="nc-name" className="input" value={nc.name} autoComplete="off" aria-invalid={error ? 'true' : undefined} aria-describedby={error ? 'nc-name-err' : undefined} onChange={e => upd({ name: e.target.value })} placeholder="e.g. Amaka Obi" />
+        </Field>
+        <Field id="nc-phone" label="WhatsApp number" hint="Used to open WhatsApp chats. Optional." error={ctx.errors && ctx.errors.newPhone}>
+          <input id="nc-phone" className="input" type="tel" inputMode="tel" value={nc.phone} aria-invalid={ctx.errors && ctx.errors.newPhone ? 'true' : undefined} aria-describedby={ctx.errors && ctx.errors.newPhone ? 'nc-phone-err' : 'nc-phone-hint'} onChange={e => upd({ phone: e.target.value })} placeholder="0803 123 4567" />
+        </Field>
+        <Field id="nc-ig" label="Instagram handle" hint="Optional.">
+          <input id="nc-ig" className="input" value={nc.handle} autoCapitalize="none" aria-describedby="nc-ig-hint" onChange={e => upd({ handle: e.target.value })} placeholder="@handle" />
+        </Field>
+        {state.customers.length > 0 && <button type="button" className="link-btn" onClick={() => set({ newCustomer: null })}>Pick a saved customer instead</button>}
+      </div>
+    );
+  }
+  const q = f.query.trim().toLowerCase();
+  const list = state.customers
+    .filter(c => !q || c.name.toLowerCase().includes(q) || (c.instagramHandle || '').toLowerCase().includes(q) || (c.phone || '').replace(/\D/g, '').includes(q.replace(/\D/g, '') || '~'))
+    .sort((a, b) => a.name.localeCompare(b.name)).slice(0, 5);
+  return (
+    <div>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label htmlFor="cust-search">Search saved customers</label>
+        <div className="search" style={{ marginBottom: 0 }}>
+          <Icon name="search" size={20} />
+          <input id="cust-search" className="input" type="search" autoComplete="off" value={f.query} placeholder="Name, @handle or phone"
+            aria-invalid={error ? 'true' : undefined} aria-describedby={error ? 'cust-search-err' : undefined}
+            onChange={e => set({ query: e.target.value })} />
+        </div>
+        {error && <p className="error" id="cust-search-err"><Icon name="alert" size={16} />{error}</p>}
+      </div>
+      {list.length > 0 && (
+        <div className="picker-list" role="list" aria-label="Matching customers">
+          {list.map(c => (
+            <button type="button" role="listitem" key={c.id} className="row" onClick={() => set({ customerId: c.id, query: '' })}>
+              <Avatar name={c.name} id={c.id} size={36} />
+              <span className="row-main"><span className="row-title">{c.name}</span><span className="row-sub">{c.instagramHandle}</span></span>
+              <Icon name="plus" size={20} className="row-chev" />
+            </button>
+          ))}
+        </div>
+      )}
+      {q && !list.length && <p className="hint" style={{ marginTop: 8 }}>No saved customer matches “{f.query}”.</p>}
+      <button type="button" className="btn btn-small" style={{ marginTop: 12 }}
+        onClick={() => set({ newCustomer: { name: /^[@\d]/.test(f.query) ? '' : f.query, phone: '', handle: f.query.startsWith('@') ? f.query : '' }, query: '' })}>
+        <Icon name="plus" size={18} /> Add new customer
+      </button>
+    </div>
+  );
+}
+
+function CreateScreen({ ctx, orderId, customerId }) {
+  const { today, nav, A, notify } = ctx;
+  const existing = orderId ? ctx.orderById(orderId) : null;
+  const [f, setF] = useState(() => initForm(existing, customerId, today));
+  const [tried, setTried] = useState(false);
+  const [errors, setErrors] = useState({});
+  const focusNewRow = useRef(false);
+  const set = patch => setF(p => ({ ...p, ...patch }));
+  const setItem = (i, patch) => setF(p => ({ ...p, items: p.items.map((it, j) => j === i ? { ...it, ...patch } : it) }));
+
+  const calc = { items: f.items, deliveryFee: f.deliveryFee, discount: f.discountOn ? f.discount : { type: 'amount', value: 0 }, payments: [] };
+  const sub = C.subtotal(calc), disc = C.discountAmount(calc), tot = C.total(calc);
+  const deposit = f.depositMode === 'none' ? 0 : f.depositMode === 'half' ? Math.round(tot / 2) : f.depositCustom;
+  const dueNowAmt = deposit > 0 ? deposit : tot;
+
+  function validate() {
+    const e = {};
+    if (!f.customerId && !(f.newCustomer && f.newCustomer.name.trim())) e.customer = f.newCustomer ? 'Add the customer’s name.' : 'Choose a customer or add a new one.';
+    if (f.newCustomer && f.newCustomer.phone.trim() && C.toWaNumber(f.newCustomer.phone).length !== 13) e.newPhone = 'Enter an 11-digit Nigerian number, like 0803 123 4567.';
+    if (!f.items.length) e.items = 'Add at least one item.';
+    f.items.forEach((it, i) => {
+      if (!it.name.trim()) e['name' + i] = 'Add an item name.';
+      if (!(it.unitPrice > 0)) e['price' + i] = 'Price must be more than ₦0.';
+    });
+    if (f.discountOn) {
+      if (f.discount.type === 'percent' && f.discount.value > 100) e.discount = 'A discount can’t be more than 100%.';
+      if (f.discount.type === 'amount' && f.discount.value > sub) e.discount = 'A discount can’t be more than the subtotal.';
+    }
+    if (f.depositMode === 'custom' && !(f.depositCustom > 0)) e.deposit = 'Enter a deposit amount, or choose None.';
+    else if (deposit > tot) e.deposit = `The deposit can’t be more than the total (${naira(tot)}).`;
+    if (!f.deadline) e.deadline = 'Pick a deadline.';
+    return e;
+  }
+  useEffect(() => { if (tried) setErrors(validate()); }, [f, tried]);
+  useEffect(() => {
+    if (focusNewRow.current) { focusNewRow.current = false; const el = document.getElementById('iname' + (f.items.length - 1)); el && el.focus(); }
+  }, [f.items.length]);
+
+  function submit() {
+    setTried(true);
+    const e = validate(); setErrors(e);
+    const n = Object.keys(e).length;
+    if (n) {
+      notify(n === 1 ? 'Fix 1 thing before previewing' : `Fix ${n} things before previewing`);
+      setTimeout(() => { const el = document.querySelector('main [aria-invalid="true"]'); el && el.focus(); }, 30);
+      return;
+    }
+    let cid = f.customerId;
+    if (!cid) cid = A.addCustomer({ name: f.newCustomer.name.trim(), phone: f.newCustomer.phone.trim(), instagramHandle: normHandle(f.newCustomer.handle) });
+    const data = {
+      customerId: cid,
+      items: f.items.map(i => ({ name: i.name.trim(), quantity: i.quantity, unitPrice: i.unitPrice })),
+      deliveryFee: f.deliveryFee, discount: calc.discount, depositRequired: deposit, deadline: f.deadline
+    };
+    let id;
+    if (existing) { A.patchOrder(existing.id, data); id = existing.id; }
+    else id = A.createOrder(data);
+    nav.finishCreate(id);
+  }
+
+  const chipDays = [[3, '3 days'], [7, '1 week'], [14, '2 weeks']];
+  return (
+    <div className="screen">
+      <TopBar title={existing ? `Edit ${existing.number}` : 'New payment request'} onBack={nav.back} />
+      <form onSubmit={e => { e.preventDefault(); submit(); }} noValidate>
+        <section className="form-section" aria-labelledby="h-cust">
+          <h2 id="h-cust">Customer</h2>
+          <CustomerPicker ctx={{ ...ctx, errors }} f={f} set={set} error={errors.customer} />
+        </section>
+
+        <section className="form-section" aria-labelledby="h-items">
+          <h2 id="h-items">Items</h2>
+          {f.items.map((it, i) => (
+            <div className="item-row" key={it.key}>
+              <div className="item-head">
+                <span className="flabel">Item {i + 1}</span>
+                <button type="button" className="icon-btn plain" aria-label={`Remove item ${i + 1}${it.name ? ' (' + it.name + ')' : ''}`} disabled={f.items.length === 1} style={f.items.length === 1 ? { opacity: .35 } : null}
+                  onClick={() => setF(p => ({ ...p, items: p.items.filter((_, j) => j !== i) }))}><Icon name="trash" size={20} /></button>
+              </div>
+              <label htmlFor={'iname' + i} className="sr-only">Item {i + 1} name</label>
+              <input id={'iname' + i} className="input" value={it.name} placeholder="e.g. Chunky cardigan" autoComplete="off"
+                aria-invalid={errors['name' + i] ? 'true' : undefined} aria-describedby={errors['name' + i] ? 'iname' + i + '-err' : undefined}
+                onChange={e => setItem(i, { name: e.target.value })} />
+              {errors['name' + i] && <p className="error" id={'iname' + i + '-err'} style={{ marginTop: 6 }}><Icon name="alert" size={16} />{errors['name' + i]}</p>}
+              <div className="item-controls">
+                <div>
+                  <span className="flabel" style={{ display: 'block', fontSize: 13, marginBottom: 6 }} aria-hidden="true">Qty</span>
+                  <Stepper value={it.quantity} onChange={q => setItem(i, { quantity: q })} label={`quantity for item ${i + 1}`} />
+                </div>
+                <div>
+                  <label htmlFor={'iprice' + i} className="flabel" style={{ display: 'block', fontSize: 13, marginBottom: 6 }}>Unit price</label>
+                  <NumInput id={'iprice' + i} value={it.unitPrice} onChange={v => setItem(i, { unitPrice: v })} error={errors['price' + i]} />
+                </div>
+              </div>
+              {errors['price' + i] && <p className="error" id={'iprice' + i + '-err'} style={{ marginTop: 6 }}><Icon name="alert" size={16} />{errors['price' + i]}</p>}
+              {it.quantity > 1 && it.unitPrice > 0 && <p className="line-total">{it.quantity} × {naira(it.unitPrice)} = <b>{naira(it.quantity * it.unitPrice)}</b></p>}
+            </div>
+          ))}
+          {errors.items && <p className="error"><Icon name="alert" size={16} />{errors.items}</p>}
+          <button type="button" className="btn btn-small" onClick={() => { focusNewRow.current = true; setF(p => ({ ...p, items: [...p.items, newItem()] })); }}><Icon name="plus" size={18} /> Add another item</button>
+        </section>
+
+        <section className="form-section" aria-labelledby="h-extra">
+          <h2 id="h-extra">Delivery & discount</h2>
+          <Field id="delivery" label="Delivery fee">
+            <NumInput id="delivery" value={f.deliveryFee} onChange={v => set({ deliveryFee: v })} />
+          </Field>
+          <div className="switch-row">
+            <span className="flabel" id="disc-lbl">Add a discount</span>
+            <span className="switch-wrap"><button type="button" className="switch" role="switch" aria-checked={f.discountOn} aria-labelledby="disc-lbl" onClick={() => set({ discountOn: !f.discountOn })} /></span>
+          </div>
+          {f.discountOn && (
+            <div className="grid2" style={{ marginTop: 10, alignItems: 'start' }}>
+              <Seg label="Discount type" value={f.discount.type} onChange={t => set({ discount: { type: t, value: 0 } })} options={[{ value: 'amount', label: '₦' }, { value: 'percent', label: '%' }]} />
+              <div>
+                <label htmlFor="disc" className="sr-only">Discount {f.discount.type === 'percent' ? 'percentage' : 'amount'}</label>
+                <NumInput id="disc" value={f.discount.value} prefix={f.discount.type === 'amount' ? '₦' : null} suffix={f.discount.type === 'percent' ? '%' : null}
+                  max={f.discount.type === 'percent' ? 999 : undefined} error={errors.discount} onChange={v => set({ discount: { ...f.discount, value: v } })} />
+              </div>
+            </div>
+          )}
+          {errors.discount && <p className="error" id="disc-err" style={{ marginTop: 8 }}><Icon name="alert" size={16} />{errors.discount}</p>}
+        </section>
+
+        <section className="form-section" aria-labelledby="h-pay">
+          <h2 id="h-pay">Deposit & deadline</h2>
+          <div className="field">
+            <span className="flabel" id="dep-lbl">Deposit</span>
+            <Seg label="Deposit" value={f.depositMode} onChange={m => set({ depositMode: m })}
+              options={[{ value: 'none', label: 'None' }, { value: 'half', label: '50%' }, { value: 'custom', label: 'Custom' }]} />
+            {f.depositMode === 'half' && <p className="hint">Half of {naira(tot)} = <b>{naira(Math.round(tot / 2))}</b> now, the rest before delivery.</p>}
+            {f.depositMode === 'none' && <p className="hint">The customer pays the full amount by the deadline.</p>}
+            {f.depositMode === 'custom' && (
+              <div style={{ marginTop: 4 }}>
+                <label htmlFor="dep" className="sr-only">Custom deposit amount</label>
+                <NumInput id="dep" value={f.depositCustom} onChange={v => set({ depositCustom: v })} error={errors.deposit} />
+              </div>
+            )}
+            {errors.deposit && <p className="error" id="dep-err"><Icon name="alert" size={16} />{errors.deposit}</p>}
+          </div>
+          <Field id="deadline" label="Deadline" error={errors.deadline} hint={f.deadline ? `${C.fmtDate(f.deadline)} · ${C.relDays(f.deadline, today)}` : null}>
+            <input id="deadline" type="date" className="input" value={f.deadline} min={existing ? undefined : today}
+              aria-invalid={errors.deadline ? 'true' : undefined} aria-describedby={errors.deadline ? 'deadline-err' : 'deadline-hint'}
+              onChange={e => set({ deadline: e.target.value })} />
+            <div className="chips" role="group" aria-label="Quick deadlines">
+              {chipDays.map(([d, l]) => <button type="button" key={d} className="chip" aria-pressed={f.deadline === C.addDays(today, d)} onClick={() => set({ deadline: C.addDays(today, d) })}>{l}</button>)}
+            </div>
+          </Field>
+        </section>
+
+        <section className="form-section breakdown" aria-label="Breakdown">
+          <div><span>Subtotal</span><span>{naira(sub)}</span></div>
+          {disc > 0 && <div><span>Discount{f.discount.type === 'percent' ? ` (${f.discount.value}%)` : ''}</span><span>−{naira(disc)}</span></div>}
+          <div><span>Delivery</span><span>{naira(f.deliveryFee)}</span></div>
+          <div className="total"><span>Total</span><span>{naira(tot)}</span></div>
+        </section>
+      </form>
+
+      <div className="fixed-col summary-bar">
+        <div className="sum-nums">
+          <div><span className="sum-label">Total</span><span className="sum-val"><Amount value={tot} /></span></div>
+          <div><span className="sum-label">{deposit > 0 ? 'Deposit due now' : 'Due now'}</span><span className="sum-val"><Amount value={dueNowAmt} /></span></div>
+        </div>
+        <button type="button" className="btn btn-yellow" onClick={submit}>Preview request</button>
+      </div>
+    </div>
+  );
+}
+
+// Customer-facing document — calm, white, official. Used for request + receipt.
+function MoneyDoc({ kind, order, customer, seller, today, docRef }) {
+  const sub = C.subtotal(order), disc = C.discountAmount(order), tot = C.total(order), pd = C.paid(order), bal = C.balance(order);
+  const due = C.dueNow(order);
+  const isReceipt = kind === 'receipt';
+  const pays = order.payments.slice().sort((a, b) => a.date < b.date ? -1 : 1);
+  const issued = isReceipt ? (pays.length ? pays[pays.length - 1].date : today) : (order.sharedAt || today);
+  const dmy = s => { const d = C.parseISO(s); return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); };
+  const showPaid = isReceipt || pd > 0;
+  return (
+    <article className="doc printable" ref={docRef} aria-label={isReceipt ? 'Receipt' : 'Payment request'}>
+      <header className="doc-head">
+        <div className="doc-brand">
+          <div className="doc-logo" aria-hidden="true">{seller.logoInitials || initialsOf(seller.businessName)}</div>
+          <div className="doc-biz">{seller.businessName}</div>
+        </div>
+        <div className="doc-date">Date: {dmy(issued)}{!isReceipt && <span>Due {C.fmtDate(order.deadline)}</span>}</div>
+      </header>
+      <div className="doc-rule" />
+      <div className="doc-titlerow">
+        <h2 className="doc-title" style={{ maxWidth: isReceipt ? 'none' : '7ch' }}>{isReceipt ? 'Receipt' : 'Payment request'}</h2>
+        <div className="doc-no">No: {order.number}</div>
+      </div>
+      {isReceipt && <div className="stamp" role="img" aria-label="Paid in full">PAID<small>IN FULL</small></div>}
+      <div className="doc-rule" />
+
+      <div className="doc-boxes">
+        <div className="doc-box lilac">
+          <div className="cap">{isReceipt ? 'Received from' : 'Payable by'}</div>
+          <div>{customer.name}</div>
+          {customer.instagramHandle && <div>{customer.instagramHandle}</div>}
+        </div>
+        {isReceipt ? (
+          <div className="doc-box">
+            <div className="cap">Status</div>
+            <div>Paid in full</div>
+            <div>{pays.length} payment{pays.length === 1 ? '' : 's'}</div>
+          </div>
+        ) : (
+          <div className="doc-box">
+            <div className="cap">Bank details</div>
+            <div>{seller.bankName}</div>
+            <div className="acct">{seller.accountNumber}</div>
+            <div>{seller.accountName}</div>
+          </div>
+        )}
+      </div>
+
+      <table className="doc-table">
+        <thead><tr><th scope="col">Item description</th><th scope="col" className="qty">Qty</th><th scope="col" className="num">Price</th><th scope="col" className="num">Total</th></tr></thead>
+        <tbody>
+          {order.items.map((i, n) => (
+            <tr key={n}><td>{i.name}</td><td className="qty">{i.quantity}</td><td className="num">{naira(i.unitPrice)}</td><td className="num">{naira(i.quantity * i.unitPrice)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="doc-bottom">
+        <div className="doc-notes">
+          <div className="cap">Notes:</div>
+          <p>{isReceipt ? 'Thank you for your order. Keep this receipt for your records.' : `Use ${order.number} as your transfer reference, then send proof of payment on WhatsApp.`}</p>
+        </div>
+        <div className={'doc-box' + (isReceipt ? ' green' : '')}>
+          <dl className="doc-totals">
+            <div><dt>Sub total</dt><dd>{naira(sub)}</dd></div>
+            {disc > 0 && <div><dt>Discount{order.discount.type === 'percent' ? ` (${order.discount.value}%)` : ''}</dt><dd>−{naira(disc)}</dd></div>}
+            <div><dt>Delivery</dt><dd>{naira(order.deliveryFee)}</dd></div>
+            <div className={showPaid ? '' : 'grand'}><dt>{showPaid ? 'Total' : 'Grand total'}</dt><dd>{naira(tot)}</dd></div>
+            {showPaid && <div><dt>Paid</dt><dd>−{naira(pd)}</dd></div>}
+            {showPaid && <div className="grand"><dt>Balance</dt><dd>{naira(Math.max(bal, 0))}</dd></div>}
+          </dl>
+        </div>
+      </div>
+
+      {isReceipt ? (
+        <div className="doc-pays">
+          <div className="cap" style={{ marginBottom: 2 }}>Payments received</div>
+          <dl style={{ margin: 0 }}>
+            {pays.map(p => <div key={p.id}><dt>{C.fmtLong(p.date)}{p.note ? ` · ${p.note}` : ''}</dt><dd>{naira(p.amount)}</dd></div>)}
+          </dl>
+        </div>
+      ) : (
+        <div className="paynow">
+          <div>
+            <div className="cap">Pay now · {KIND_LABEL[due.kind]}</div>
+            <div className="a"><Amount value={due.amount} /></div>
+          </div>
+          <div className="d">by {C.fmtDate(order.deadline)}{due.kind === 'deposit' ? `. Balance of ${naira(bal - due.amount)} later.` : ''}</div>
+        </div>
+      )}
+
+      <footer className="doc-foot">
+        {seller.phone ? <span><Icon name="phone" size={13} />{seller.phone}</span> : <span />}
+        <span>Ref {order.number}</span>
+      </footer>
+    </article>
+  );
+}
+
+// Inside an embedded frame (e.g. a hosted share link) downloads and print are blocked,
+// so the download button is swapped for a screenshot hint there.
+const IN_FRAME = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+function DocActions({ shareHref, onShare, shareLabel = 'Share on WhatsApp', docRef, filename, extra, notify }) {
+  const [busy, setBusy] = useState(false);
+  async function download() {
+    setBusy(true);
+    const r = await downloadDoc(docRef.current, filename);
+    setBusy(false);
+    notify(r === 'image' ? 'Image downloaded' : 'Opened print view. Choose “Save as PDF”.');
+  }
+  return (
+    <div className="stack">
+      <a className="btn btn-yellow btn-lg btn-block" href={shareHref} target="_blank" rel="noopener noreferrer" onClick={onShare}><Icon name="chat" /> {shareLabel}</a>
+      {IN_FRAME ? (
+        <>
+          {extra}
+          <p className="hint" style={{ textAlign: 'center' }}>To save it as an image, take a screenshot of the document above.</p>
+        </>
+      ) : (
+        <div className="btn-row">
+          <button className="btn" onClick={download} disabled={busy} aria-busy={busy}><Icon name="download" size={20} /> {busy ? 'Saving…' : 'Download image'}</button>
+          {extra}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PreviewScreen({ ctx, orderId }) {
+  const { state, today, nav, A, notify } = ctx;
+  const o = ctx.orderById(orderId), c = ctx.custById(o.customerId), s = state.seller;
+  const ref = useRef(null);
+  const due = C.dueNow(o);
+  const msg = C.requestMessage(o, c, s);
+  const draft = !o.sharedAt;
+  function share() {
+    if (draft) A.patchOrder(o.id, { sharedAt: today });
+    notify(draft ? 'Opening WhatsApp · marked as sent' : 'Opening WhatsApp');
+  }
+  async function copy() {
+    const ok = await copyText(C.paymentDetails(s, o, due.amount));
+    notify(ok ? 'Payment details copied' : 'Couldn’t copy. Press and hold the details instead.');
+  }
+  return (
+    <div className="screen">
+      <TopBar title={draft ? 'Preview request' : `Request ${o.number}`} onBack={nav.back}
+        right={draft && <button className="btn btn-small" onClick={() => nav.go({ name: 'create', orderId: o.id })}><Icon name="edit" size={18} /> Edit</button>} />
+      <p className="note">{draft ? `This is exactly what ${C.firstName(c)} will see. Nothing is sent until you share it.` : `Sent ${C.fmtDate(o.sharedAt)}. Share again any time — amounts update automatically.`}</p>
+      <div className="doc-tray"><MoneyDoc kind="request" order={o} customer={c} seller={s} today={today} docRef={ref} /></div>
+      <DocActions shareHref={C.waLink(c.phone, msg)} onShare={share} docRef={ref} filename={`${o.number}-payment-request.png`} notify={notify}
+        extra={<button className="btn" onClick={copy}><Icon name="copy" size={20} /> Copy details</button>} />
+      <details className="msg-preview">
+        <summary>See the WhatsApp message</summary>
+        <pre>{msg}</pre>
+      </details>
+      <div style={{ textAlign: 'center', marginTop: 12 }}>
+        <button className="link-btn" onClick={() => nav.replace({ name: 'order', orderId: o.id })}>Go to order {o.number} <Icon name="chevron" size={18} /></button>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+   STAGE 4 — Order detail + Record payment + Reminder preview
+   ========================================================================= */
+function buildTimeline(o, today) {
+  const ev = [], tot = C.total(o);
+  ev.push({ key: 'c', icon: 'edit', label: 'Order created', sub: C.fmtDate(o.createdAt), state: 'done' });
+  if (o.sharedAt) ev.push({ key: 's', icon: 'send', label: 'Request sent', sub: C.fmtDate(o.sharedAt), state: 'done' });
+  else ev.push({ key: 's', icon: 'send', label: 'Request not sent yet', sub: 'Share it on WhatsApp to start tracking', state: 'pending' });
+  let run = 0;
+  o.payments.slice().sort((a, b) => a.date < b.date ? -1 : 1).forEach((p, i) => {
+    const before = run; run += p.amount;
+    let label = 'Part payment';
+    if (i === 0 && o.depositRequired > 0 && before < o.depositRequired && run < tot) label = 'Deposit';
+    else if (run >= tot) label = i === 0 ? 'Paid in full' : 'Balance paid';
+    ev.push({ key: p.id, icon: 'cash', label: `${label} · ${naira(p.amount)}`, sub: C.fmtDate(p.date) + (p.note ? ` · ${p.note}` : ''), state: 'done' });
+  });
+  const due = C.dueNow(o), late = C.daysLate(o, today);
+  if (o.sharedAt && due.amount > 0) {
+    ev.push({ key: 'due', icon: 'clock', label: `${KIND_LABEL[due.kind]} due · ${naira(due.amount)}`, sub: `${C.fmtDate(o.deadline)} · ${late ? C.lateLabel(late) : C.relDays(o.deadline, today)}`, state: late ? 'late' : 'pending' });
+    if (due.kind === 'deposit' && C.balance(o) > due.amount) ev.push({ key: 'bal', icon: 'cash', label: `Then balance · ${naira(C.balance(o) - due.amount)}`, sub: 'Before delivery', state: 'pending' });
+  }
+  if (o.deliveredAt) ev.push({ key: 'd', icon: 'truck', label: 'Delivered', sub: C.fmtDate(o.deliveredAt), state: 'done' });
+  return ev;
+}
+
+function OrderScreen({ ctx, orderId }) {
+  const { today, nav, A, notify, setSheet } = ctx;
+  const o = ctx.orderById(orderId), c = ctx.custById(o.customerId) || { name: 'Unknown', id: 'x' };
+  const s = C.status(o), tot = C.total(o), pd = C.paid(o), bal = C.balance(o), due = C.dueNow(o);
+  const pct = tot > 0 ? Math.min(100, Math.round(pd / tot * 100)) : 0;
+  const open = C.isOpen(o);
+  return (
+    <div className="screen">
+      <TopBar title="Order detail" onBack={nav.back} />
+      <div className="detail-top">
+        <p className="detail-id"><Icon name="receipt" size={18} /> {o.number} <StatusPills order={o} today={today} /></p>
+        <p className="detail-amt"><Amount value={s === 'paid' ? tot : due.amount} /></p>
+        <p className="hint">{s === 'paid' ? 'Fully paid' : s === 'draft' ? 'Due once the request is sent' : `${KIND_LABEL[due.kind]} due now`}</p>
+        <dl className="kv" style={{ margin: '18px 0 0' }}>
+          <div><dt>Created</dt><dd>{C.fmtLong(o.createdAt)}</dd></div>
+          <div><dt>Deadline</dt><dd>{C.fmtLong(o.deadline)}</dd></div>
+        </dl>
+        <div className="progress" role="progressbar" aria-label="Amount paid" aria-valuemin={0} aria-valuemax={tot} aria-valuenow={pd} aria-valuetext={`${naira(pd)} of ${naira(tot)} paid`} style={{ marginTop: 20 }}>
+          <div className={pct >= 100 ? 'full' : ''} style={{ width: pct + '%' }} />
+        </div>
+        <div className="prog-labels"><span><b>{naira(pd)}</b> paid</span><span><b>{naira(Math.max(bal, 0))}</b> left of {naira(tot)}</span></div>
+      </div>
+      <hr className="dash" />
+
+      <section className="card" aria-labelledby="h-billed">
+        <h2 id="h-billed" style={{ fontSize: 18, marginBottom: 14 }}>Billed to</h2>
+        <button className="billed" onClick={() => nav.go({ name: 'customer', customerId: c.id })} aria-label={`${c.name}. Open customer profile`}>
+          <Avatar name={c.name} id={c.id} size={48} />
+          <span className="who"><b>{c.name}</b>{(c.instagramHandle || c.phone) && <span><Icon name={c.instagramHandle ? 'at' : 'phone'} size={15} />{c.instagramHandle || c.phone}</span>}</span>
+          <Icon name="chevron" size={18} className="row-chev" />
+        </button>
+      </section>
+
+      <section className="card" aria-labelledby="h-items-o">
+        <h2 id="h-items-o" style={{ fontSize: 18, marginBottom: 8 }}>Item details</h2>
+        <div className="items-mini">
+          {o.items.map((i, n) => <div key={n}><span>{i.quantity} × {i.name}</span><span>{naira(i.quantity * i.unitPrice)}</span></div>)}
+          {C.discountAmount(o) > 0 && <div><span>Discount</span><span>−{naira(C.discountAmount(o))}</span></div>}
+          <div><span>Delivery</span><span>{naira(o.deliveryFee)}</span></div>
+          <div className="tot"><span>Total</span><span>{naira(tot)}</span></div>
+        </div>
+        <p className="hint" style={{ marginTop: 8 }}>Deposit: {o.depositRequired ? naira(o.depositRequired) : 'none'} · Deadline: {C.fmtDate(o.deadline)}</p>
+      </section>
+
+      <section className="card" aria-labelledby="h-tl">
+        <h2 id="h-tl" style={{ fontSize: 18, marginBottom: 16 }}>Payment timeline</h2>
+        <ol className="timeline">
+          {buildTimeline(o, today).map(e => (
+            <li key={e.key}>
+              <span className={'tl-dot ' + e.state}>{e.state === 'done' ? <Icon name="check" size={16} /> : <Icon name={e.icon} size={14} />}</span>
+              <span className="tl-text"><b>{e.label}</b><span>{e.sub}</span></span>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <div className="actions">
+        {s === 'draft' && <button className="btn btn-yellow btn-lg" onClick={() => nav.go({ name: 'preview', orderId: o.id })}><Icon name="send" /> Preview & share request</button>}
+        {s === 'draft' && <button className="btn" onClick={() => nav.go({ name: 'create', orderId: o.id })}><Icon name="edit" /> Edit draft</button>}
+        {open && <button className="btn btn-yellow btn-lg" onClick={() => setSheet({ type: 'payment', orderId: o.id })}><Icon name="cash" /> Record payment</button>}
+        {open && (
+          <div className="btn-row">
+            <button className="btn" onClick={() => nav.go({ name: 'reminder', orderId: o.id })}><Icon name="bell" size={20} /> Remind</button>
+            <button className="btn" onClick={() => nav.go({ name: 'preview', orderId: o.id })}><Icon name="send" size={20} /> Share again</button>
+          </div>
+        )}
+        {s === 'paid' && <button className="btn btn-yellow btn-lg" onClick={() => nav.go({ name: 'receipt', orderId: o.id })}><Icon name="receipt" /> Share receipt</button>}
+        {s !== 'draft' && (
+          <button className="btn" aria-pressed={!!o.deliveredAt} onClick={() => { A.patchOrder(o.id, { deliveredAt: o.deliveredAt ? null : today }); notify(o.deliveredAt ? 'Marked as not delivered' : 'Marked as delivered'); }}>
+            <Icon name="truck" /> {o.deliveredAt ? `Delivered ${C.fmtShort(o.deliveredAt)} · undo` : 'Mark delivered'}
+          </button>
+        )}
+      </div>
+      <div className="danger-zone">
+        <button className="danger-link" onClick={() => setSheet({
+          type: 'confirm', danger: true, title: `Delete ${o.number}?`,
+          body: `This removes ${c.name}’s order and its ${o.payments.length} recorded payment${o.payments.length === 1 ? '' : 's'}. You can’t undo this, and ${o.number} won’t be used again.`,
+          confirmLabel: 'Delete order', onConfirm: () => { nav.back(); A.deleteOrder(o.id); notify(`${o.number} deleted`); }
+        })}><Icon name="trash" size={18} /> Delete order</button>
+      </div>
+    </div>
+  );
+}
+
+function PaymentSheet({ ctx, order, onClose }) {
+  const { today, nav, A, notify } = ctx;
+  const c = ctx.custById(order.customerId) || { name: 'Customer' };
+  const [snap] = useState(() => ({ due: C.dueNow(order), bal: C.balance(order) }));
+  const { due, bal } = snap;
+  const [amount, setAmount] = useState(0);
+  const [date, setDate] = useState(today);
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState('');
+  const [done, setDone] = useState(null);
+
+  function save() {
+    if (!(amount > 0)) return setErr('Enter the amount you received.');
+    if (amount > bal) return setErr(`That’s more than the balance of ${naira(bal)}. Refunds and overpayments aren’t supported yet.`);
+    if (!date) return setErr('Pick the date you received it.');
+    if (date > today) return setErr('The payment date can’t be in the future.');
+    A.patchOrder(order.id, o => ({ payments: [...o.payments, { id: C.uid('p'), amount, date, note: note.trim() }] }));
+    const left = bal - amount;
+    notify(`${naira(amount)} recorded · ${left > 0 ? naira(left) + ' left' : 'fully paid'}`);
+    setDone({ left });
+  }
+
+  if (done) {
+    return (
+      <Sheet title="Payment recorded" onClose={onClose}>
+        <div className="success">
+          <div className="tick"><Icon name="check" size={36} /></div>
+          <h2><Amount value={amount} />saved</h2>
+          {done.left > 0 ? (
+            <>
+              <p>{C.firstName(c)} still owes <b style={{ color: 'var(--ink)' }}>{naira(done.left)}</b>. Send the balance request now?</p>
+              <div className="stack">
+                <button className="btn btn-yellow btn-block btn-lg" onClick={() => { onClose(); nav.go({ name: 'preview', orderId: order.id }); }}><Icon name="send" /> Send balance request now</button>
+                <button className="btn btn-block" onClick={onClose}>Not now</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p>{order.number} is fully paid. Send {C.firstName(c)} a receipt?</p>
+              <div className="stack">
+                <button className="btn btn-yellow btn-block btn-lg" onClick={() => { onClose(); nav.go({ name: 'receipt', orderId: order.id }); }}><Icon name="receipt" /> Share receipt</button>
+                <button className="btn btn-block" onClick={onClose}>Done</button>
+              </div>
+            </>
+          )}
+        </div>
+      </Sheet>
+    );
+  }
+
+  return (
+    <Sheet title="Record payment" onClose={onClose}>
+      <p className="hint" style={{ marginBottom: 12 }}>{c.name} · {order.number} · {naira(bal)} left</p>
+      <div className="field">
+        <label htmlFor="pay-amt">Amount received</label>
+        <NumInput id="pay-amt" value={amount} onChange={v => { setAmount(v); setErr(''); }} error={err} />
+        <div className="chips" role="group" aria-label="Amount shortcuts">
+          {due.kind === 'deposit' && due.amount < bal && <button type="button" className="chip" aria-pressed={amount === due.amount} onClick={() => { setAmount(due.amount); setErr(''); }}>Deposit {naira(due.amount)}</button>}
+          <button type="button" className="chip" aria-pressed={amount === bal} onClick={() => { setAmount(bal); setErr(''); }}>Full balance {naira(bal)}</button>
+        </div>
+        {err && <p className="error" id="pay-amt-err"><Icon name="alert" size={16} />{err}</p>}
+      </div>
+      <div className="grid2">
+        <Field id="pay-date" label="Date received">
+          <input id="pay-date" type="date" className="input" value={date} max={today} onChange={e => { setDate(e.target.value); setErr(''); }} />
+        </Field>
+        <Field id="pay-note" label="Note (optional)">
+          <input id="pay-note" className="input" value={note} placeholder="e.g. Opay transfer" onChange={e => setNote(e.target.value)} />
+        </Field>
+      </div>
+      <div className="callout"><Icon name="bank" size={20} /><span>Only record this after checking your bank app.</span></div>
+      <button className="btn btn-yellow btn-block btn-lg" onClick={save}><Icon name="check" /> Save payment</button>
+    </Sheet>
+  );
+}
+
+const TONES = [{ id: 'friendly', label: 'Friendly' }, { id: 'neutral', label: 'Neutral' }, { id: 'firm', label: 'Firm' }];
+function ReminderScreen({ ctx, orderId }) {
+  const { state, today, nav, notify } = ctx;
+  const o = ctx.orderById(orderId), c = ctx.custById(o.customerId), s = state.seller;
+  const [tone, setTone] = useState(s.defaultReminderTone || 'friendly');
+  const [text, setText] = useState(() => C.reminderMessage(tone, o, c, s, today));
+  const [edited, setEdited] = useState(false);
+  const tabRefs = useRef([]);
+  if (!C.isOpen(o)) {
+    return (
+      <div className="screen">
+        <TopBar title="Reminder" onBack={nav.back} />
+        <Empty title="Nothing to remind about">{o.sharedAt ? `${o.number} is fully paid.` : 'Send the payment request first, then you can remind them.'}</Empty>
+      </div>
+    );
+  }
+  const pick = t => { setTone(t); setText(C.reminderMessage(t, o, c, s, today)); setEdited(false); };
+  const onTabKey = (e, i) => {
+    let n = null;
+    if (e.key === 'ArrowRight') n = (i + 1) % TONES.length;
+    if (e.key === 'ArrowLeft') n = (i + TONES.length - 1) % TONES.length;
+    if (n !== null) { e.preventDefault(); pick(TONES[n].id); tabRefs.current[n].focus(); }
+  };
+  const due = C.dueNow(o), late = C.daysLate(o, today);
+  return (
+    <div className="screen">
+      <TopBar title="Reminder" onBack={nav.back} />
+      <div className="card" style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16 }}>
+        <Avatar name={c.name} id={c.id} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <b>{c.name}</b>
+          <div className="hint">{naira(due.amount)} {KIND_LABEL[due.kind].toLowerCase()} · {o.number}</div>
+        </div>
+        {late > 0 && <LatePill days={late} />}
+      </div>
+      <div className="tabs" role="tablist" aria-label="Message tone">
+        {TONES.map((t, i) => (
+          <button key={t.id} ref={el => tabRefs.current[i] = el} role="tab" id={'tab-' + t.id} aria-selected={tone === t.id} aria-controls="tone-panel"
+            tabIndex={tone === t.id ? 0 : -1} onKeyDown={e => onTabKey(e, i)} onClick={() => pick(t.id)}>{t.label}</button>
+        ))}
+      </div>
+      <div role="tabpanel" id="tone-panel" aria-labelledby={'tab-' + tone}>
+        <div className="field">
+          <label htmlFor="rem-text">Message (you can edit it)</label>
+          <textarea id="rem-text" className="textarea" value={text} onChange={e => { setText(e.target.value); setEdited(true); }} aria-describedby="rem-hint" />
+          <p className="hint" id="rem-hint">{edited ? 'Switching tone will replace your edits.' : 'Bank details are included as plain text so they can copy them.'}</p>
+        </div>
+      </div>
+      <a className="btn btn-yellow btn-lg btn-block" href={C.waLink(c.phone, text)} target="_blank" rel="noopener noreferrer"
+        aria-disabled={!text.trim()} onClick={e => { if (!text.trim()) { e.preventDefault(); return; } notify('Opening WhatsApp · press send when ready'); }}>
+        <Icon name="chat" /> Open WhatsApp
+      </a>
+      <div className="callout" style={{ marginTop: 16 }}><Icon name="info" size={20} /><span>Nothing is sent automatically. WhatsApp opens with this message and you press send.</span></div>
+    </div>
+  );
+}
+
+/* =========================================================================
+   STAGE 5 — Receipt, Customers, Orders, Settings, first-run
+   ========================================================================= */
+function ReceiptScreen({ ctx, orderId }) {
+  const { state, today, nav, notify } = ctx;
+  const o = ctx.orderById(orderId), c = ctx.custById(o.customerId), s = state.seller;
+  const ref = useRef(null);
+  if (C.status(o) !== 'paid') {
+    return (
+      <div className="screen">
+        <TopBar title="Receipt" onBack={nav.back} />
+        <Empty title="Not fully paid yet">{`A receipt is ready once ${o.number} is fully paid. ${naira(C.balance(o))} is still open.`}</Empty>
+      </div>
+    );
+  }
+  const msg = C.receiptMessage(o, c, s);
+  return (
+    <div className="screen">
+      <TopBar title={`Receipt ${o.number}`} onBack={nav.back} />
+      <div className="doc-tray"><MoneyDoc kind="receipt" order={o} customer={c} seller={s} today={today} docRef={ref} /></div>
+      <DocActions shareHref={C.waLink(c.phone, msg)} onShare={() => notify('Opening WhatsApp')} shareLabel="Share receipt on WhatsApp" docRef={ref} filename={`${o.number}-receipt.png`} notify={notify}
+        extra={<button className="btn" onClick={async () => notify(await copyText(msg) ? 'Receipt text copied' : 'Couldn’t copy')}><Icon name="copy" size={20} /> Copy text</button>} />
+      <details className="msg-preview"><summary>See the WhatsApp message</summary><pre>{msg}</pre></details>
+    </div>
+  );
+}
+
+const FILTERS = [
+  { id: 'all', label: 'All' }, { id: 'overdue', label: 'Overdue' }, { id: 'deposit', label: 'Awaiting deposit' },
+  { id: 'balance', label: 'Balance due' }, { id: 'paid', label: 'Paid' }, { id: 'draft', label: 'Drafts' }
+];
+const FILTER_EMPTY = {
+  all: ['No orders yet', 'Create a payment request and it will show up here.'],
+  overdue: ['Nothing overdue', 'No one has missed a deadline. Nice.'],
+  deposit: ['No deposits waiting', 'Orders waiting for their first payment show here.'],
+  balance: ['No balances due', 'Orders with a deposit paid and money still owed show here.'],
+  paid: ['No paid orders yet', 'Fully paid orders show here, ready for a receipt.'],
+  draft: ['No drafts', 'Requests you haven’t shared yet show here.']
+};
+function OrdersScreen({ ctx, filter: initial }) {
+  const { state, today, nav } = ctx;
+  const [filter, setFilter] = useState(initial || 'all');
+  const match = (o, f) => f === 'all' ? true : f === 'overdue' ? C.daysLate(o, today) > 0 : C.status(o) === f;
+  const list = C.sortOrders(state.orders.filter(o => match(o, filter)), today);
+  return (
+    <div className="screen">
+      <TopBar title="Orders" right={<button className="icon-btn" aria-label="New payment request" onClick={() => nav.go({ name: 'create' })}><Icon name="plus" /></button>} />
+      <div className="chips scroll" role="group" aria-label="Filter orders">
+        {FILTERS.map(f => (
+          <button key={f.id} className="chip" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
+            {f.label} <span className="count">{state.orders.filter(o => match(o, f.id)).length}</span>
+          </button>
+        ))}
+      </div>
+      <p className="sr-only" aria-live="polite">{list.length} orders shown</p>
+      {list.length
+        ? <div className="list">{list.map(o => <OrderRow key={o.id} o={o} ctx={ctx} />)}</div>
+        : <Empty title={FILTER_EMPTY[filter][0]} action={filter === 'all' && <button className="btn btn-yellow" onClick={() => nav.go({ name: 'create' })}><Icon name="plus" /> New payment request</button>}>{FILTER_EMPTY[filter][1]}</Empty>}
+    </div>
+  );
+}
+
+function CustomersScreen({ ctx }) {
+  const { state, nav } = ctx;
+  const [q, setQ] = useState('');
+  const ql = q.trim().toLowerCase();
+  const rows = state.customers
+    .filter(c => !ql || c.name.toLowerCase().includes(ql) || (c.instagramHandle || '').toLowerCase().includes(ql))
+    .map(c => ({ c, st: C.customerStats(state, c.id) }))
+    .sort((a, b) => (b.st.owed - a.st.owed) || a.c.name.localeCompare(b.c.name));
+  return (
+    <div className="screen">
+      <TopBar title="Customers" />
+      <div className="search">
+        <label htmlFor="cs" className="sr-only">Search customers</label>
+        <Icon name="search" size={20} />
+        <input id="cs" className="input" type="search" placeholder="Search name or @handle" value={q} onChange={e => setQ(e.target.value)} />
+      </div>
+      {!state.customers.length
+        ? <Empty title="No customers yet" action={<button className="btn btn-yellow" onClick={() => nav.go({ name: 'create' })}><Icon name="plus" /> New payment request</button>}>Customers are saved when you create a payment request for them.</Empty>
+        : rows.length
+          ? <div className="list">{rows.map(({ c, st }) => (
+              <button key={c.id} className="row" onClick={() => nav.go({ name: 'customer', customerId: c.id })}>
+                <Avatar name={c.name} id={c.id} size={40} />
+                <span className="row-main"><span className="row-title">{c.name}</span><span className="row-sub">{c.instagramHandle || c.phone || 'No contact saved'}</span></span>
+                <span className="row-end">{st.owed > 0 ? <><span className="row-amt">{naira(st.owed)}</span><span className="row-kind">owed</span></> : <span className="row-kind">All paid</span>}</span>
+                <Icon name="chevron" size={18} className="row-chev" />
+              </button>
+            ))}</div>
+          : <Empty title="No matches">No customer matches “{q}”. Check the spelling or search by @handle.</Empty>}
+    </div>
+  );
+}
+
+function CustomerScreen({ ctx, customerId }) {
+  const { state, today, nav } = ctx;
+  const c = ctx.custById(customerId);
+  const st = C.customerStats(state, c.id);
+  const orders = C.sortOrders(st.orders, today);
+  return (
+    <div className="screen">
+      <TopBar title="Customer" onBack={nav.back} />
+      <div className="profile-head">
+        <Avatar name={c.name} id={c.id} size={84} />
+        <h2>{c.name}</h2>
+        <p>Customer since {C.fmtLong(c.createdAt)}</p>
+      </div>
+      <div className="stats">
+        <div className="stat"><p className="l">Total spent</p><p className="v"><Amount value={st.spent} /></p></div>
+        <div className={'stat' + (st.owed > 0 ? ' owed' : '')}><p className="l">Currently owed</p><p className="v"><Amount value={st.owed} /></p></div>
+      </div>
+      <div className="card contact" style={{ padding: '4px 16px' }}>
+        {c.phone ? (
+          <a href={C.waLink(c.phone, `Hi ${C.firstName(c)}! `)} target="_blank" rel="noopener noreferrer">
+            <span className="ic"><Icon name="chat" size={18} /></span>
+            <span style={{ flex: 1 }}>{c.phone}<small>Chat on WhatsApp</small></span>
+            <Icon name="chevron" size={18} className="row-chev" />
+          </a>
+        ) : <div style={{ minHeight: 52, display: 'flex', alignItems: 'center', color: 'var(--muted)' }}>No phone number saved</div>}
+        {c.instagramHandle && (
+          <a href={`https://instagram.com/${c.instagramHandle.replace(/^@/, '')}`} target="_blank" rel="noopener noreferrer">
+            <span className="ic"><Icon name="at" size={18} /></span>
+            <span style={{ flex: 1 }}>{c.instagramHandle}<small>Open Instagram profile</small></span>
+            <Icon name="chevron" size={18} className="row-chev" />
+          </a>
+        )}
+      </div>
+      <button className="btn btn-yellow btn-block" style={{ marginTop: 16 }} onClick={() => nav.go({ name: 'create', customerId: c.id })}><Icon name="plus" /> New request for {C.firstName(c)}</button>
+      <section className="section" aria-labelledby="h-hist">
+        <SectionHead id="h-hist" title="Order history" count={orders.length} />
+        {orders.length
+          ? <div className="list">{orders.map(o => <OrderRow key={o.id} o={o} ctx={ctx} />)}</div>
+          : <Empty title="No orders yet">Create a payment request for {C.firstName(c)} to start their history.</Empty>}
+      </section>
+    </div>
+  );
+}
+
+const BANKS = ['Access Bank', 'GTBank', 'First Bank', 'UBA', 'Zenith Bank', 'Kuda', 'Opay', 'Moniepoint', 'PalmPay', 'Fidelity Bank', 'Wema Bank', 'Stanbic IBTC', 'Sterling Bank', 'FCMB', 'Union Bank', 'Ecobank'];
+function validateSeller(f, step) {
+  const e = {};
+  if (!step || step === 1) { if (!f.businessName.trim()) e.businessName = 'Add your business name.'; }
+  if (!step || step === 2) {
+    if (!f.bankName.trim()) e.bankName = 'Add your bank.';
+    if (!/^\d{10}$/.test(f.accountNumber.replace(/\s/g, ''))) e.accountNumber = 'Nigerian account numbers have 10 digits.';
+    if (!f.accountName.trim()) e.accountName = 'Add the name on the account.';
+  }
+  return e;
+}
+function SellerFields({ f, set, err, only }) {
+  const inp = (id, label, props = {}, hint) => (
+    <Field id={'s-' + id} label={label} error={err[id]} hint={hint}>
+      <input id={'s-' + id} className="input" value={f[id]} aria-invalid={err[id] ? 'true' : undefined}
+        aria-describedby={err[id] ? 's-' + id + '-err' : hint ? 's-' + id + '-hint' : undefined}
+        onChange={e => set({ [id]: e.target.value })} {...props} />
+    </Field>
+  );
+  return (
+    <>
+      {(!only || only === 1) && <>
+        {inp('businessName', 'Business name', { placeholder: 'e.g. Mimi Crochets', autoComplete: 'organization' }, 'Shown on every request and receipt.')}
+        {only !== 1 && inp('logoInitials', 'Logo initials', { maxLength: 3, placeholder: 'MC' })}
+        {inp('phone', 'Your WhatsApp number', { type: 'tel', inputMode: 'tel', placeholder: '0803 000 1122' }, 'Optional. Printed on your documents.')}
+      </>}
+      {(!only || only === 2) && <>
+        {inp('bankName', 'Bank', { list: 'banks', placeholder: 'e.g. GTBank', autoComplete: 'off' })}
+        <datalist id="banks">{BANKS.map(b => <option key={b} value={b} />)}</datalist>
+        {inp('accountNumber', 'Account number', { inputMode: 'numeric', maxLength: 10, placeholder: '0123456789' })}
+        {inp('accountName', 'Account name', { placeholder: 'As it appears in your bank app' })}
+      </>}
+    </>
+  );
+}
+
+/* =========================================================================
+   Onboarding — three printed-order-book slides before setup
+   ========================================================================= */
+function NairaBadge({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 132 132" aria-hidden="true">
+      <defs><path id="ob-ring" d="M66 66m-48 0a48 48 0 1 1 96 0a48 48 0 1 1-96 0" /></defs>
+      <circle cx="66" cy="66" r="66" fill="#9A0F5D" />
+      <text fill="#FFF3E3" fontFamily="Archivo Black, sans-serif" fontSize="12.5" letterSpacing="1.5"><textPath href="#ob-ring">DEPOSIT · BALANCE · PAID IN FULL ·</textPath></text>
+      <text x="66" y="80" textAnchor="middle" fill="#FFF3E3" fontFamily="Archivo Black, sans-serif" fontSize="40">₦</text>
+    </svg>
+  );
+}
+const OB_SLIDES = [
+  {
+    word: 'Track', tone: 'lilac', title: 'Track every order',
+    body: 'Every order, deposit and balance in one place. Time to retire the notebook.',
+    art: (
+      <>
+        <div className="art-doc">
+          <div className="mini-doc">
+            <div className="t">Payment request</div>
+            <div className="no">No: INV-0041</div>
+            <div className="rule" />
+            <div className="bx l"><div className="cp">Payable by</div>Amaka Obi</div>
+            <div className="ln" style={{ marginTop: 6 }}><span>Chunky cardigan</span><span>₦47,000</span></div>
+            <div className="ln"><span>Delivery</span><span>₦3,000</span></div>
+            <div className="bx g"><span className="cp">Grand total</span><span className="big">₦50,000</span></div>
+          </div>
+        </div>
+        <NairaBadge className="ob-badge" />
+      </>
+    )
+  },
+  {
+    word: 'Paid', tone: 'green', title: 'Get paid faster',
+    body: 'Send a WhatsApp request with the amount and your account number, ready to copy into any bank app.',
+    art: (
+      <div className="art-phone">
+        <div className="art-screen">
+          <div className="bubble">
+            Hi Amaka! Here’s your payment request from Mimi Crochets.<br />
+            Deposit due: <span className="hl">₦25,000</span><br />
+            GTBank · <span className="hl">0123456789</span>
+          </div>
+          <span className="mini-copy"><Icon name="copy" size={12} /> Account number copied</span>
+          <div className="bubble me">Sent the ₦25,000. Thank you!</div>
+        </div>
+      </div>
+    )
+  },
+  {
+    word: 'Nudge', tone: 'magenta', title: 'Nudge late payers',
+    body: 'See who’s late at a glance. Send a friendly, neutral or firm reminder. You always press send.',
+    art: (
+      <div className="art-stack">
+        <div className="mini-card">
+          <span className="avatar" style={{ width: 36, height: 36, fontSize: 12 }}>TB</span>
+          <span className="who"><b>Tolu Bello</b><span className="pill pill-late"><Icon name="clock" size={14} /><span className="pill-t">1 day late</span></span></span>
+          <span className="amt"><Amount value={37000} /></span>
+        </div>
+        <div className="mini-tabs"><span className="on">Friendly</span><span>Neutral</span><span>Firm</span></div>
+        <div className="mini-msg">Hi Tolu, hope you’re well! Just a little reminder that the ₦37,000 deposit for your crochet bag is still open…</div>
+      </div>
+    )
+  }
+];
+
+function Onboarding({ ctx }) {
+  const { A } = ctx;
+  const [i, setI] = useState(0);
+  const last = OB_SLIDES.length - 1;
+  const drag = useRef(null);
+  const go = n => setI(Math.max(0, Math.min(last, n)));
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'ArrowRight') go(i + 1); if (e.key === 'ArrowLeft') go(i - 1); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [i]);
+  const onDown = e => { drag.current = e.clientX; };
+  const onUp = e => {
+    if (drag.current == null) return;
+    const dx = e.clientX - drag.current; drag.current = null;
+    if (dx < -45) go(i + 1); else if (dx > 45) go(i - 1);
+  };
+  return (
+    <div className="ob screen">
+      <div className="ob-viewport" role="region" aria-roledescription="carousel" aria-label="Welcome to Tally"
+        onPointerDown={onDown} onPointerUp={onUp} onPointerCancel={() => { drag.current = null; }}>
+        <div className="ob-track" style={{ transform: `translateX(-${i * 100}%)` }}>
+          {OB_SLIDES.map((s, n) => (
+            <section key={n} className="ob-slide" aria-roledescription="slide" aria-label={`${n + 1} of ${OB_SLIDES.length}`} aria-hidden={n !== i}>
+              <div className={'ob-panel ' + s.tone}>
+                {n === 0
+                  ? <h1 className="ob-word" tabIndex={-1} aria-label={s.title}>{s.word}</h1>
+                  : <h2 className="ob-word" aria-label={s.title}>{s.word}</h2>}
+                <p className="ob-body">{s.body}</p>
+                <div className="ob-art" aria-hidden="true">{s.art}</div>
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
+      <p className="sr-only" aria-live="polite">Slide {i + 1} of {OB_SLIDES.length}: {OB_SLIDES[i].title}</p>
+      <div className="ob-foot">
+        <div className="ob-nav">
+          <button className="ob-arrow" aria-label="Previous slide" disabled={i === 0} onClick={() => go(i - 1)}><Icon name="back" size={20} /></button>
+          <div className="ob-dots" role="group" aria-label="Choose slide">
+            {OB_SLIDES.map((s, n) => <button key={n} aria-label={`Slide ${n + 1}: ${s.title}`} aria-current={n === i ? 'step' : undefined} onClick={() => go(n)} />)}
+          </div>
+          <button className="ob-arrow" aria-label="Next slide" disabled={i === last} onClick={() => go(i + 1)}><Icon name="arrow" size={20} /></button>
+        </div>
+        <button className="btn btn-yellow btn-lg btn-block" onClick={A.introSetup}>Set up my shop</button>
+        <button className="link-btn ob-demo" onClick={A.introDemo}>Just looking? Explore the demo shop</button>
+      </div>
+    </div>
+  );
+}
+
+function SetupScreen({ ctx }) {
+  const { A, nav, notify, setSheet } = ctx;
+  const [step, setStep] = useState(1);
+  const [f, setF] = useState({ businessName: '', logoInitials: '', phone: '', bankName: '', accountNumber: '', accountName: '' });
+  const [err, setErr] = useState({});
+  const set = p => setF(x => ({ ...x, ...p }));
+  useEffect(() => { const h = document.querySelector('main h1'); h && h.focus({ preventScroll: true }); }, [step]);
+  function next() {
+    const e = validateSeller(f, step); setErr(e);
+    if (Object.keys(e).length) { setTimeout(() => { const el = document.querySelector('main [aria-invalid="true"]'); el && el.focus(); }, 30); return; }
+    if (step === 1) { if (!f.accountName) set({ accountName: f.businessName.trim() }); setStep(2); return; }
+    A.setSeller({ ...f, businessName: f.businessName.trim(), accountNumber: f.accountNumber.replace(/\s/g, ''), logoInitials: initialsOf(f.businessName), defaultReminderTone: 'friendly' });
+    nav.reset({ name: 'home' });
+    notify('You’re all set!');
+  }
+  return (
+    <div className="screen">
+      <div className="setup-top on-dark">
+        <svg className="hero-shape" style={{ right: -20, top: -24 }} width="120" height="120" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="46" fill="#9A0F5D" /></svg>
+        <svg className="hero-shape" style={{ right: 70, bottom: 14 }} width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><rect x="3" y="3" width="28" height="28" rx="8" fill="#D3F6C0" stroke="#23221F" strokeWidth="1.5" transform="rotate(14 17 17)" /></svg>
+        <div className="steps" aria-hidden="true"><span className="on" /><span className={step === 2 ? 'on' : ''} /></div>
+        <p>Step {step} of 2</p>
+        <h1 tabIndex={-1}>{step === 1 ? 'Let’s set up your shop' : 'Where should customers pay?'}</h1>
+        <p>{step === 1 ? 'This takes about a minute. Customers see these details on every request.' : 'These details go on every payment request, so customers can copy them straight into their bank app.'}</p>
+      </div>
+      <form className="form-section" onSubmit={e => { e.preventDefault(); next(); }} noValidate>
+        <SellerFields f={f} set={set} err={err} only={step} />
+        <div className="stack" style={{ marginTop: 6 }}>
+          <button type="submit" className="btn btn-yellow btn-lg btn-block">{step === 1 ? 'Next: bank details' : 'Finish setup'} <Icon name="chevron" /></button>
+          {step === 2 && <button type="button" className="btn btn-block" onClick={() => setStep(1)}><Icon name="back" /> Back</button>}
+        </div>
+      </form>
+      <p style={{ textAlign: 'center' }}>
+        <button className="link-btn" onClick={() => setSheet({ type: 'confirm', title: 'Load demo data?', body: 'Explore with a sample crochet shop, Mimi Crochets, with 12 orders and 9 customers.', confirmLabel: 'Load demo data', onConfirm: A.resetDemo })}>Just exploring? Load demo data</button>
+      </p>
+    </div>
+  );
+}
+
+function SettingsScreen({ ctx }) {
+  const { state, A, notify, setSheet } = ctx;
+  const s = state.seller;
+  const [f, setF] = useState({ businessName: s.businessName, logoInitials: s.logoInitials || '', phone: s.phone || '', bankName: s.bankName, accountNumber: s.accountNumber, accountName: s.accountName });
+  const [err, setErr] = useState({});
+  const set = p => setF(x => ({ ...x, ...p }));
+  const dirty = Object.keys(f).some(k => (f[k] || '') !== (s[k] || ''));
+  function save() {
+    const e = validateSeller(f); setErr(e);
+    if (Object.keys(e).length) { notify('Check the highlighted fields'); setTimeout(() => { const el = document.querySelector('main [aria-invalid="true"]'); el && el.focus(); }, 30); return; }
+    A.setSeller({ ...s, ...f, businessName: f.businessName.trim(), logoInitials: (f.logoInitials.trim() || initialsOf(f.businessName)).toUpperCase(), accountNumber: f.accountNumber.replace(/\s/g, '') });
+    notify('Settings saved');
+  }
+  return (
+    <div className="screen">
+      <TopBar title="Settings" />
+      {!C.Store.persistent && <div className="callout warn"><Icon name="alert" size={20} /><span>Your browser is blocking storage, so changes only last until you close this tab.</span></div>}
+      <form onSubmit={e => { e.preventDefault(); save(); }} noValidate>
+        <section className="form-section" aria-labelledby="h-shop"><h2 id="h-shop">Your shop</h2><SellerFields f={f} set={set} err={err} only={1} /><Field id="s-logoInitials" label="Logo initials"><input id="s-logoInitials" className="input" maxLength={3} value={f.logoInitials} onChange={e => set({ logoInitials: e.target.value })} /></Field></section>
+        <section className="form-section" aria-labelledby="h-bank"><h2 id="h-bank">Bank details</h2><SellerFields f={f} set={set} err={err} only={2} /></section>
+        <button type="submit" className="btn btn-yellow btn-block btn-lg" disabled={!dirty}><Icon name="check" /> {dirty ? 'Save changes' : 'All changes saved'}</button>
+      </form>
+      <section className="form-section" style={{ marginTop: 20 }} aria-labelledby="h-tone">
+        <h2 id="h-tone">Default reminder tone</h2>
+        <Seg label="Default reminder tone" value={s.defaultReminderTone} onChange={t => { A.setSeller({ ...s, defaultReminderTone: t }); notify(`Reminders will start ${t}`); }} options={TONES.map(t => ({ value: t.id, label: t.label }))} />
+        <p className="hint" style={{ marginTop: 8 }}>You can still switch tone on each reminder.</p>
+      </section>
+      <section className="form-section" aria-labelledby="h-demo">
+        <h2 id="h-demo">Demo</h2>
+        <div className="stack">
+          <button className="btn btn-block" onClick={() => setSheet({ type: 'confirm', danger: true, title: 'Reset demo data?', body: 'This replaces everything with the Mimi Crochets sample shop. Any orders you added will be lost.', confirmLabel: 'Reset demo data', onConfirm: () => { A.resetDemo(); notify('Demo data restored'); } })}><Icon name="refresh" /> Reset demo data</button>
+          <button className="btn btn-block" onClick={A.replayIntro}><Icon name="refresh" /> Replay intro</button>
+          <button className="btn btn-block" onClick={() => setSheet({ type: 'confirm', danger: true, title: 'Start fresh?', body: 'This clears all shop details, customers and orders, then shows the intro and first-run setup.', confirmLabel: 'Clear everything', onConfirm: A.startFresh })}><Icon name="trash" /> Start fresh (first-run setup)</button>
+        </div>
+      </section>
+      <p className="settings-foot">Everything is stored on this device only. Nothing is sent anywhere unless you share it.</p>
+    </div>
+  );
+}
+
+function NotFound({ nav }) {
+  return <div className="screen"><TopBar title="Not found" onBack={nav.back} /><Empty title="This order no longer exists">It may have been deleted.</Empty></div>;
+}
+
+/* =========================================================================
+   App root
+   ========================================================================= */
+// Prototype behaviour: the intro opens on every load (introSeen is reset here),
+// so anyone opening the link — or reloading during a demo — starts at onboarding.
+// "Explore the demo shop" keeps whatever data is already saved.
+function loadState() {
+  const s = C.Store.get(KEY);
+  if (s && s.version === 1 && Array.isArray(s.orders)) return { ...s, introSeen: false };
+  const fresh = C.buildSample(C.todayISO()); // first load: preload demo shop
+  C.Store.set(KEY, fresh);
+  return { ...fresh, introSeen: false };
+}
+
+function App() {
+  const today = C.todayISO();
+  const [state, setState] = useState(loadState);
+  useEffect(() => { C.Store.set(KEY, state); }, [state]);
+  const [stack, setStack] = useState(() => [{ name: state.seller ? 'home' : 'setup' }]);
+  const route = stack[stack.length - 1];
+  const [toast, setToast] = useState(null);
+  const [sheet, setSheet] = useState(null);
+  const timer = useRef(null);
+  const notify = msg => { clearTimeout(timer.current); setToast({ msg, key: Date.now() }); timer.current = setTimeout(() => setToast(null), 3000); };
+
+  const nav = useMemo(() => ({
+    go: r => setStack(s => [...s, r]),
+    back: () => setStack(s => s.length > 1 ? s.slice(0, -1) : [{ name: 'home' }]),
+    tab: n => setStack([{ name: n }]),
+    reset: r => setStack([r]),
+    replace: r => setStack(s => [...s.slice(0, -1), r]),
+    // After saving the create form: return to an existing preview of this order, or replace the form with one
+    finishCreate: id => setStack(s => {
+      const prev = s[s.length - 2];
+      if (prev && prev.name === 'preview' && prev.orderId === id) return s.slice(0, -1);
+      return [...s.slice(0, -1), { name: 'preview', orderId: id }];
+    })
+  }), []);
+
+  const A = {
+    createOrder(data) {
+      const id = C.uid('o');
+      setState(s => ({ ...s, nextNumber: s.nextNumber + 1, orders: [...s.orders, { ...data, id, number: C.invNumber(s.nextNumber), payments: [], createdAt: today, sharedAt: null, deliveredAt: null }] }));
+      return id;
+    },
+    addCustomer(c) { const id = C.uid('c'); setState(s => ({ ...s, customers: [...s.customers, { ...c, id, createdAt: today }] })); return id; },
+    patchOrder(id, patch) { setState(s => ({ ...s, orders: s.orders.map(o => o.id === id ? { ...o, ...(typeof patch === 'function' ? patch(o) : patch) } : o) })); },
+    deleteOrder(id) { setState(s => ({ ...s, orders: s.orders.filter(o => o.id !== id) })); }, // nextNumber is untouched, so numbers are never reused
+    setSeller(seller) { setState(s => ({ ...s, seller })); },
+    resetDemo() { setState({ ...C.buildSample(today), introSeen: true }); nav.reset({ name: 'home' }); },
+    startFresh() { setState(C.emptyState()); nav.reset({ name: 'setup' }); },
+    replayIntro() { setState(s => ({ ...s, introSeen: false })); },
+    // Intro → explore: keep any shop that exists, otherwise load the demo
+    introDemo() {
+      if (state.seller) { setState(s => ({ ...s, introSeen: true })); nav.reset({ name: 'home' }); }
+      else A.resetDemo();
+    },
+    // Intro → set up: start from an empty shop. If the seller has their own data, confirm first.
+    introSetup() {
+      const ownData = state.seller && (state.seller.businessName !== 'Mimi Crochets' || state.orders.some(o => !/^o\d+$/.test(o.id)));
+      const begin = () => { setState({ ...C.emptyState(), introSeen: true }); nav.reset({ name: 'setup' }); };
+      if (ownData) setSheet({ type: 'confirm', danger: true, title: 'Set up a new shop?', body: `This replaces ${state.seller.businessName} and its orders on this device.`, confirmLabel: 'Start new shop', onConfirm: begin });
+      else begin();
+    }
+  };
+
+  const orderById = id => state.orders.find(o => o.id === id);
+  const custById = id => state.customers.find(c => c.id === id);
+  const ctx = { state, today, nav, A, notify, setSheet, orderById, custById };
+
+  const routeKey = stack.length + ':' + route.name + ':' + (route.orderId || route.customerId || route.filter || '');
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    const h = document.querySelector('main h1');
+    if (h && stack.length + (route.name === 'home' ? 0 : 1) > 1) h.focus({ preventScroll: true });
+  }, [routeKey]);
+
+  const needsOrder = ['preview', 'order', 'reminder', 'receipt'].includes(route.name) || (route.name === 'create' && route.orderId);
+  let screen;
+  const showIntro = !state.introSeen;
+  if (showIntro) screen = <Onboarding ctx={ctx} />;
+  else if (!state.seller) screen = <SetupScreen ctx={ctx} />;
+  else if (needsOrder && (!orderById(route.orderId) || !custById(orderById(route.orderId).customerId))) screen = <NotFound nav={nav} />;
+  else if (route.name === 'customer' && !custById(route.customerId)) screen = <NotFound nav={nav} />;
+  else switch (route.name) {
+    case 'home': screen = <Dashboard ctx={ctx} />; break;
+    case 'orders': screen = <OrdersScreen key={routeKey} ctx={ctx} filter={route.filter} />; break;
+    case 'customers': screen = <CustomersScreen ctx={ctx} />; break;
+    case 'settings': screen = <SettingsScreen ctx={ctx} />; break;
+    case 'create': screen = <CreateScreen key={routeKey} ctx={ctx} orderId={route.orderId} customerId={route.customerId} />; break;
+    case 'preview': screen = <PreviewScreen ctx={ctx} orderId={route.orderId} />; break;
+    case 'order': screen = <OrderScreen ctx={ctx} orderId={route.orderId} />; break;
+    case 'reminder': screen = <ReminderScreen key={routeKey} ctx={ctx} orderId={route.orderId} />; break;
+    case 'receipt': screen = <ReceiptScreen ctx={ctx} orderId={route.orderId} />; break;
+    case 'customer': screen = <CustomerScreen ctx={ctx} customerId={route.customerId} />; break;
+    default: screen = <Dashboard ctx={ctx} />;
+  }
+  const showNav = !showIntro && !!state.seller && TABS.some(t => t.id === route.name);
+  const hasBar = !showIntro && !!state.seller && route.name === 'create';
+  const sheetOrder = sheet && sheet.type === 'payment' && orderById(sheet.orderId);
+
+  return (
+    <div className="app">
+      <a className="skip" href="#main">Skip to content</a>
+      <main id="main" key={routeKey} className={showNav ? 'with-nav' : hasBar ? 'with-bar' : ''}>{screen}</main>
+      {showNav && <BottomNav active={route.name} nav={nav} overdue={state.orders.filter(o => C.daysLate(o, today) > 0).length} />}
+      {sheetOrder && <PaymentSheet ctx={ctx} order={sheetOrder} onClose={() => setSheet(null)} />}
+      {sheet && sheet.type === 'confirm' && <ConfirmSheet s={sheet} onClose={() => setSheet(null)} />}
+      <div className={'fixed-col toast-wrap' + (showNav ? ' above-nav' : hasBar ? ' above-bar' : '')} role="status" aria-live="polite">
+        {toast && <div className="toast" key={toast.key}><Icon name="check" size={18} />{toast.msg}</div>}
+      </div>
+      <aside className="desk-note" aria-hidden="true">
+        <svg className="desk-badge" viewBox="0 0 132 132">
+          <defs><path id="ring" d="M66 66m-48 0a48 48 0 1 1 96 0a48 48 0 1 1-96 0" /></defs>
+          <circle cx="66" cy="66" r="66" fill="#9A0F5D" />
+          <text fill="#FFF3E3" fontFamily="Archivo Black" fontSize="13" letterSpacing="1.5"><textPath href="#ring">ORDERS · DEPOSITS · BALANCES · PAID ·</textPath></text>
+          <text x="66" y="80" textAnchor="middle" fill="#FFF3E3" fontFamily="Archivo Black" fontSize="40">₦</text>
+        </svg>
+        <h2>Orders, not invoices.</h2>
+        <p>One order, one customer, several payments over time. The app makes the payment request and the receipt from it.</p>
+        <p>Data lives in this browser only. Reset it any time from Settings.</p>
+      </aside>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
